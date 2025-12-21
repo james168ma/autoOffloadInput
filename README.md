@@ -1,6 +1,6 @@
-# Card Ladder Scraper
+# AutoOffloadInput
 
-This tool automates the process of reading Certification Numbers from a Google Sheet, scraping their "Card Ladder Value" from [CardLadder.com](https://www.cardladder.com), and writing the result back to the sheet.
+This tool automates the process of reading Certification Numbers from a Google Sheet, taking their "Card Ladder Value" from [CardLadder.com](https://www.cardladder.com), and writing the result back to the sheet.
 
 ## Features
 -   **Dynamic Column Detection**: Automatically finds "Certification Number" and "CL Market Value When Paid" columns.
@@ -65,7 +65,7 @@ To allow the script to read/write to your sheet, you need a Service Account.
 2.  A Chromium browser window will open.
 3.  **Action Required**: The script will pause. Use the browser window to log in to Card Ladder manually.
 4.  Once you are logged in, go to the sales history tab in card ladder, then switch back to the terminal and **press ENTER**.
-5.  The script will now cycle through your sheet, scraping values and updating Column E automatically.
+5.  The script will now cycle through your sheet, getting values and updating Column E automatically.
 
 ## Troubleshooting
 -   **"The caller does not have permission"**: You forgot to Share the sheet with the Service Account email.
