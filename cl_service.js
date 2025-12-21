@@ -19,7 +19,7 @@ const submitBtnSelector = "#content > div > section > div > div.modal-backdrop.b
  * @param {import('puppeteer').Page} page 
  * @param {string} certNumber 
  */
-async function processCert(page, certNumber) {
+async function getCLValue(page, certNumber) {
     if (!certNumber) return null;
 
     try {
@@ -128,4 +128,4 @@ async function processCert(page, certNumber) {
     }
 }
 
-module.exports = { processCert };
+module.exports = { getCLValue };

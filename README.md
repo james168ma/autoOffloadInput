@@ -1,16 +1,24 @@
 # AutoOffloadInput
 
-This tool automates the process of reading Certification Numbers from a Google Sheet, taking their "Card Ladder Value" from [CardLadder.com](https://www.cardladder.com), and writing the result back to the sheet.
+This tool automates the process of:
+1.  **PSA Data**: Fetching card details (Name, Number, Grade) from PSA (via API or read from website).
+2.  **Card Ladder**: Read "Card Ladder Value" from [CardLadder.com](https://www.cardladder.com).
+3.  **Google Sheets**: Updating a Google Sheet with the results.
 
 ## Features
--   **Dynamic Column Detection**: Automatically finds "Certification Number" and "CL Market Value When Paid" columns.
--   **Manual Login Support**: Pauses to allow you to log in to Card Ladder securely in the browser.
--   **Smart Updates**: Only fills empty cells. If a cell is filled, it verifies the value and alerts you of mismatches.
--   **Anti-Detection**: Uses stealth plugins to behave like a real browser.
+-   **PSA Integration**:
+    -   Uses **PSA Public API** (fast/reliable) if an API key is provided.
+    -   Falls back to reading from website (safe/isolated tab) if the API fails or is missing.
+    -   Populates "Card Name", "Card Number", and "Grade" if empty.
+    -   Smartly parses grades (e.g., converts "GEM MT 10" to number `10`).
+-   **Card Ladder Automation**:
+    -   **Automated Login**: Uses credentials from `.env` to log in automatically.
+    -   **Manual Fallback**: If no credentials are found, pauses for manual login.
+    -   **Values**: Scrapes the market value and rounds it **UP** to the nearest dollar.
 
 ## Prerequisites
 -   [Node.js](https://nodejs.org/) installed on your computer.
--   A Google Cloud Project with a Service Account (details below).
+-   A Google Cloud Project with a Service Account.
 
 ## Setup Guide
 
@@ -35,39 +43,46 @@ To allow the script to read/write to your sheet, you need a Service Account.
 4.  Paste it into the Share box and give it **Editor** permissions.
 
 ### 3. Project Configuration
-1.  Open this project folder in VS Code or Terminal.
-2.  Install dependencies:
+1.  Install dependencies:
     ```bash
     npm install
     ```
-3.  Create a new file named `.env` (copy `.env.example`).
-4.  Fill in your details:
-
+2.  Create a `.env` file (copy `.env.example`):
     ```ini
-    # .env file content
+    # Google Sheets Auth
     GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account-email@...
-    
-    # Copy the PRIVATE KEY exactly as is from the JSON file, including the -----BEGIN... and \n parts
     GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
-    
-    # The ID of your Google Sheet (from the URL)
-    # https://docs.google.com/spreadsheets/d/THIS_PART_IS_THE_ID/edit
-    SHEET_ID=1rMarcJlKb5LOUKLvWVK...
+    SHEET_ID=your_sheet_id_here
+
+    # PSA Integration (Optional but Recommended)
+    PSA_API_KEY=your_psa_public_api_key
+
+    # Card Ladder Login (Optional - for auto-login)
+    CL_USER=your_email@example.com
+    CL_PASS=your_password
+
+    # Row Limits (Optional)
+    # START_ROW=2   (Start from specific row, defaults to 2)
+    # END_ROW=100   (Stop at specific row, defaults to end of sheet)
     ```
 
 ## Usage
 
-0. Make sure you've updated the SHEET_ID in the .env file to your google sheet ID.
+0. Make sure you've updated the SHEET_ID in the .env file to your proper google sheet ID.
 1.  Run the script:
     ```bash
     node index.js
     ```
-2.  A Chromium browser window will open.
-3.  **Action Required**: The script will pause. Use the browser window to log in to Card Ladder manually.
-4.  Once you are logged in, go to the sales history tab in card ladder, then switch back to the terminal and **press ENTER**.
-5.  The script will now cycle through your sheet, getting values and updating Column E automatically.
+2.  **Login Phase**:
+    -   **Auto**: If `CL_USER/PASS` are set, it will log in and navigate to Sales History automatically.
+    -   **Manual**: If not set, it will pause. Log in manually in the browser, then press **ENTER** in the terminal.
+3.  **Processing**:
+    -   The script will iterate through rows.
+    -   **PSA**: If metadata (Name/Number/Grade) is missing, it fetches it first.
+    -   **Card Ladder**: Matches the cert and updates the value.
+    -   Stops after `MAX_ROWS` (default 10, configurable in `index.js`).
 
 ## Troubleshooting
--   **"The caller does not have permission"**: You forgot to Share the sheet with the Service Account email.
--   **"Cloudflare loop"**: The script uses stealth mode, but if you get stuck, try solving the captcha manually during the login pause.
--   **"Column not found"**: Ensure your sheet has headers named exactly `"Certification Number"` and `"CL Market Value When Paid"`.
+-   **"The caller does not have permission"**: Share the sheet with the Service Account email.
+-   **"Login failed"**: Check your `CL_USER` and `CL_PASS`. If auto-login struggles, remove them from `.env` to use manual mode.
+-   **"Column not found"**: Ensure headers match: `"Certification Number"`, `"CL Market Value When Paid"`, `"Card Name"`, `"Card Number"`, `"Grade"`.
