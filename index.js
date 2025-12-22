@@ -206,7 +206,6 @@ async function main() {
 
     const mismatches = [];
 
-    // Helper to convert 0-based column index to letter (A, B, C...)
     const getColLetter = (n) => {
         if (n < 0) return null;
         let letter = '';
@@ -216,6 +215,8 @@ async function main() {
         }
         return letter;
     };
+
+    let lastScrapedValue = null; // Store RAW unrounded value for stale checks
 
     for (let i = startIndex; i <= endIndex; i++) {
         const row = rows[i];
@@ -299,18 +300,24 @@ async function main() {
         }
 
         // Scrape
-        const newVal = await getCLValue(page, cert);
+        const newVal = await getCLValue(page, cert, lastScrapedValue);
 
         if (newVal === null) {
             console.warn(`Failed to scrape value for ${cert}`);
             continue;
         }
 
+        // Update cache for next iteration (keep raw value)
+        lastScrapedValue = newVal;
+
+        // Round UP for writing to sheet
+        const newValToWrite = Math.ceil(newVal);
+
         if (!currentVal || currentVal.toString().trim() === "") {
             // Case: Empty Column -> Write
-            console.log(`✏️ Writing value ${newVal} to "${VALUE_HEADER}"`);
+            console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
             if (valueCell) {
-                valueCell.value = newVal;
+                valueCell.value = newValToWrite;
                 rowModified = true;
             }
         } else {
@@ -318,13 +325,13 @@ async function main() {
             // Clean currentVal (remove $ or , or %)
             const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
 
-            if (cleanCurrent !== newVal) {
-                console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newVal}`);
+            if (cleanCurrent !== newValToWrite) {
+                console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
                 mismatches.push({
                     row: rowNumber,
                     cert: cert,
                     sheetVal: cleanCurrent,
-                    scrapedVal: newVal
+                    scrapedVal: newValToWrite
                 });
             } else {
                 console.log(`✅ Verified match: ${cleanCurrent}`);

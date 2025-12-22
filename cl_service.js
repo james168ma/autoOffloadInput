@@ -18,8 +18,9 @@ const submitBtnSelector = "#content > div > section > div > div.modal-backdrop.b
  * Searches for a cert number and scrapes the value
  * @param {import('puppeteer').Page} page 
  * @param {string} certNumber 
+ * @param {number|null} previousValue - The raw value of the previous card to check for stale data
  */
-async function getCLValue(page, certNumber) {
+async function getCLValue(page, certNumber, previousValue = null) {
     if (!certNumber) return null;
 
     try {
@@ -91,6 +92,8 @@ async function getCLValue(page, certNumber) {
         // Scrape Card Ladder Value
         attempts = 0;
         let cardLadderValue = 0;
+
+        // Wait loop for Value
         while (attempts < MAX_RETRIES) {
             const val = await page.evaluate((sel) => {
                 const el = document.querySelector(sel);
@@ -102,8 +105,18 @@ async function getCLValue(page, certNumber) {
 
             if (val !== null && !isNaN(val) && val > 0) {
                 cardLadderValue = val;
-                console.log(`✅ Card Ladder value loaded: ${cardLadderValue}`);
-                break;
+
+                // STALE CHECK: If value is same as previous, wait longer to be sure
+                if (previousValue !== null && val === previousValue) {
+                    if (attempts % 4 === 0) { // Log every ~2 seconds
+                        console.log(`⏳ Value (${val}) matches previous. Waiting for update...`);
+                    }
+                    // Continue waiting...
+                } else {
+                    // New value confirmed
+                    console.log(`✅ Card Ladder value loaded: ${cardLadderValue}`);
+                    break;
+                }
             }
             await wait(500);
             attempts++;
@@ -111,16 +124,18 @@ async function getCLValue(page, certNumber) {
 
         if (cardLadderValue === 0) {
             console.warn("⚠️ Card Ladder value did not load in time");
+        } else if (previousValue !== null && cardLadderValue === previousValue) {
+            console.log(`ℹ️ Value remained ${cardLadderValue} after waiting. Assuming match.`);
         }
 
         const higherValue = Math.ceil(Math.max(average, cardLadderValue));
         console.log("💵 Prices:", prices);
         console.log("📈 Average:", average.toFixed(2));
-        console.log("🏷 Card Ladder Value:", cardLadderValue);
+        console.log("🏷 Card Ladder Value (Raw):", cardLadderValue);
         console.log("💰 Higher Value (rounded UP):", higherValue);
 
-        // User requested EXACT Card Ladder value, rounded UP.
-        return Math.ceil(cardLadderValue);
+        // Return raw value so we can cache it for next time
+        return cardLadderValue;
 
     } catch (error) {
         console.error("Error processing cert:", certNumber, error);
