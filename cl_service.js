@@ -19,8 +19,9 @@ const submitBtnSelector = "#content > div > section > div > div.modal-backdrop.b
  * @param {import('puppeteer').Page} page 
  * @param {string} certNumber 
  * @param {number|null} previousValue - The raw value of the previous card to check for stale data
+ * @param {boolean} skipStaleCheck - If true, skip the stale check even if value matches (for identical cards)
  */
-async function getCLValue(page, certNumber, previousValue = null) {
+async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck = false) {
     if (!certNumber) return null;
 
     try {
@@ -108,6 +109,11 @@ async function getCLValue(page, certNumber, previousValue = null) {
 
                 // STALE CHECK: If value is same as previous, wait longer to be sure
                 if (previousValue !== null && val === previousValue) {
+                    if (skipStaleCheck) {
+                        console.log("ℹ️ Identical card detected. Skipping stale check.");
+                        break; // Accept it immediately
+                    }
+
                     if (attempts % 4 === 0) { // Log every ~2 seconds
                         console.log(`⏳ Value (${val}) matches previous. Waiting for update...`);
                     }

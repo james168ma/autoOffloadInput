@@ -206,6 +206,7 @@ async function main() {
 
     const mismatches = [];
 
+    // Helper to convert 0-based column index to letter (A, B, C...)
     const getColLetter = (n) => {
         if (n < 0) return null;
         let letter = '';
@@ -217,6 +218,7 @@ async function main() {
     };
 
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
+    let lastPsaDetails = null;   // Store { name, number, grade } to detect identical cards
 
     for (let i = startIndex; i <= endIndex; i++) {
         const row = rows[i];
@@ -274,6 +276,13 @@ async function main() {
         console.log(`\nProcessing Row ${rowNumber} | Cert: ${cert}`);
         let rowModified = false;
 
+        // Current PSA Details (starts with cell values)
+        let currentPsaDetails = {
+            name: nameCell ? nameCell.value : null,
+            number: numberCell ? numberCell.value : null,
+            grade: gradeCell ? gradeCell.value : null
+        };
+
         // --- PSA INTEGRATION ---
         const needsName = nameCell && (!nameCell.value || nameCell.value.toString().trim() === "");
         const needsNumber = numberCell && (!numberCell.value || numberCell.value.toString().trim() === "");
@@ -296,19 +305,37 @@ async function main() {
                     gradeCell.value = psaData.grade;
                     rowModified = true;
                 }
+
+                // Update our current details object with fetched data
+                if (psaData.name) currentPsaDetails.name = psaData.name;
+                if (psaData.number) currentPsaDetails.number = psaData.number;
+                if (psaData.grade) currentPsaDetails.grade = psaData.grade;
+            }
+        }
+
+        // Check if SAME card as previous
+        let isSameCard = false;
+        if (lastPsaDetails) {
+            if (
+                String(currentPsaDetails.name || '').trim() === String(lastPsaDetails.name || '').trim() &&
+                String(currentPsaDetails.number || '').trim() === String(lastPsaDetails.number || '').trim() &&
+                String(currentPsaDetails.grade || '').trim() === String(lastPsaDetails.grade || '').trim()
+            ) {
+                isSameCard = true;
             }
         }
 
         // Scrape
-        const newVal = await getCLValue(page, cert, lastScrapedValue);
+        const newVal = await getCLValue(page, cert, lastScrapedValue, isSameCard);
 
         if (newVal === null) {
             console.warn(`Failed to scrape value for ${cert}`);
             continue;
         }
 
-        // Update cache for next iteration (keep raw value)
+        // Update Caches
         lastScrapedValue = newVal;
+        lastPsaDetails = currentPsaDetails;
 
         // Round UP for writing to sheet
         const newValToWrite = Math.ceil(newVal);
