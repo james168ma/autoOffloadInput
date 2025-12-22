@@ -64,6 +64,10 @@ To allow the script to read/write to your sheet, you need a Service Account.
     # Row Limits (Optional)
     # START_ROW=2   (Start from specific row, defaults to 2)
     # END_ROW=100   (Stop at specific row, defaults to end of sheet)
+
+    # Write Mode (Optional)
+    # Options: BOTH (Default), PSA, CL
+    WRITE_MODE=BOTH
     ```
 
 ## Usage

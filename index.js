@@ -25,7 +25,10 @@ async function main() {
 
     // LIMITATION: Only process this many rows per run (set to Infinity for all)
     const MAX_ROWS = 5;
+    const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL'
+
     console.log(`⚠️  Max Rows Limit set to: ${MAX_ROWS}`);
+    console.log(`📝 Write Mode: ${WRITE_MODE}`);
 
     // 1. Setup Google Sheets
     if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SHEET_ID) {
@@ -289,27 +292,32 @@ async function main() {
         const needsGrade = gradeCell && (!gradeCell.value || gradeCell.value.toString().trim() === "");
 
         if (needsName || needsNumber || needsGrade) {
-            console.log(`🔎 Missing metadata. Fetching from PSA...`);
-            const psaData = await psaService.getDetails(cert);
+            // ONLY fetch/write if mode is BOTH or PSA
+            if (['BOTH', 'PSA'].includes(WRITE_MODE)) {
+                console.log(`🔎 Missing metadata. Fetching from PSA...`);
+                const psaData = await psaService.getDetails(cert);
 
-            if (psaData) {
-                if (needsName && nameCell) {
-                    nameCell.value = psaData.name;
-                    rowModified = true;
-                }
-                if (needsNumber && numberCell) {
-                    numberCell.value = psaData.number;
-                    rowModified = true;
-                }
-                if (needsGrade && gradeCell) {
-                    gradeCell.value = psaData.grade;
-                    rowModified = true;
-                }
+                if (psaData) {
+                    if (needsName && nameCell) {
+                        nameCell.value = psaData.name;
+                        rowModified = true;
+                    }
+                    if (needsNumber && numberCell) {
+                        numberCell.value = psaData.number;
+                        rowModified = true;
+                    }
+                    if (needsGrade && gradeCell) {
+                        gradeCell.value = psaData.grade;
+                        rowModified = true;
+                    }
 
-                // Update our current details object with fetched data
-                if (psaData.name) currentPsaDetails.name = psaData.name;
-                if (psaData.number) currentPsaDetails.number = psaData.number;
-                if (psaData.grade) currentPsaDetails.grade = psaData.grade;
+                    // Update our current details object with fetched data
+                    if (psaData.name) currentPsaDetails.name = psaData.name;
+                    if (psaData.number) currentPsaDetails.number = psaData.number;
+                    if (psaData.grade) currentPsaDetails.grade = psaData.grade;
+                }
+            } else {
+                console.log(`⏭️  Skipping PSA fetch (Write Mode: ${WRITE_MODE})`);
             }
         }
 
@@ -326,43 +334,47 @@ async function main() {
         }
 
         // Scrape
-        const newVal = await getCLValue(page, cert, lastScrapedValue, isSameCard);
+        if (['BOTH', 'CL'].includes(WRITE_MODE)) {
+            const newVal = await getCLValue(page, cert, lastScrapedValue, isSameCard);
 
-        if (newVal === null) {
-            console.warn(`Failed to scrape value for ${cert}`);
-            continue;
-        }
+            if (newVal === null) {
+                console.warn(`Failed to scrape value for ${cert}`);
+                continue;
+            }
 
-        // Update Caches
-        lastScrapedValue = newVal;
-        lastPsaDetails = currentPsaDetails;
+            // Update Caches
+            lastScrapedValue = newVal;
+            lastPsaDetails = currentPsaDetails;
 
-        // Round UP for writing to sheet
-        const newValToWrite = Math.ceil(newVal);
+            // Round UP for writing to sheet
+            const newValToWrite = Math.ceil(newVal);
 
-        if (!currentVal || currentVal.toString().trim() === "") {
-            // Case: Empty Column -> Write
-            console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
-            if (valueCell) {
-                valueCell.value = newValToWrite;
-                rowModified = true;
+            if (!currentVal || currentVal.toString().trim() === "") {
+                // Case: Empty Column -> Write
+                console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
+                if (valueCell) {
+                    valueCell.value = newValToWrite;
+                    rowModified = true;
+                }
+            } else {
+                // Case: Filled -> Compare
+                // Clean currentVal (remove $ or , or %)
+                const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
+
+                if (cleanCurrent !== newValToWrite) {
+                    console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
+                    mismatches.push({
+                        row: rowNumber,
+                        cert: cert,
+                        sheetVal: cleanCurrent,
+                        scrapedVal: newValToWrite
+                    });
+                } else {
+                    console.log(`✅ Verified match: ${cleanCurrent}`);
+                }
             }
         } else {
-            // Case: Filled -> Compare
-            // Clean currentVal (remove $ or , or %)
-            const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
-
-            if (cleanCurrent !== newValToWrite) {
-                console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
-                mismatches.push({
-                    row: rowNumber,
-                    cert: cert,
-                    sheetVal: cleanCurrent,
-                    scrapedVal: newValToWrite
-                });
-            } else {
-                console.log(`✅ Verified match: ${cleanCurrent}`);
-            }
+            console.log(`⏭️  Skipping CL Value (Write Mode: ${WRITE_MODE})`);
         }
         if (rowModified) {
             await sheet.saveUpdatedCells();
