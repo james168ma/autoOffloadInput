@@ -19,7 +19,7 @@ const submitBtnSelector = "#content > div > section > div > div.modal-backdrop.b
  * @param {import('puppeteer').Page} page 
  * @param {string} certNumber 
  * @param {number|null} previousValue - The raw value of the previous card to check for stale data
- * @param {boolean} skipStaleCheck - If true, skip the stale check even if value matches (for identical cards)
+ * @returns {Promise<{raw: number, higher: number}|null>} Object containing raw and higher values, or null if failed
  */
 async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck = false) {
     if (!certNumber) return null;
@@ -141,7 +141,10 @@ async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck
         console.log("💰 Higher Value (rounded UP):", higherValue);
 
         // Return raw value so we can cache it for next time
-        return cardLadderValue;
+        return {
+            raw: cardLadderValue,
+            higher: higherValue
+        };
 
     } catch (error) {
         console.error("Error processing cert:", certNumber, error);

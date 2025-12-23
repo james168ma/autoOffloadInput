@@ -158,7 +158,7 @@ async function main() {
 
     // Configurable headers
     const CERT_HEADER = "Certification Number";
-    const VALUE_HEADER = "CL Market Value When Paid";
+    const VALUE_HEADER = "CL Market Value";
     const NAME_HEADER = "Card Name";
     const NUMBER_HEADER = "Card Number";
     const GRADE_HEADER = "Grade";
@@ -222,6 +222,10 @@ async function main() {
 
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
     let lastPsaDetails = null;   // Store { name, number, grade } to detect identical cards
+
+    // Options: 'RAW' (default) or 'HIGHER'
+    const CL_VALUE_CHOICE = process.env.CL_VALUE_CHOICE || 'RAW';
+    console.log(`⚖️  Value Choice: ${CL_VALUE_CHOICE}`);
 
     for (let i = startIndex; i <= endIndex; i++) {
         const row = rows[i];
@@ -323,31 +327,64 @@ async function main() {
 
         // Check if SAME card as previous
         let isSameCard = false;
+
+        // Helper for safe comparison
+        const isMatch = (str1, str2) => String(str1 || '').trim() === String(str2 || '').trim();
+
+        // Check 1: In-memory last details
         if (lastPsaDetails) {
             if (
-                String(currentPsaDetails.name || '').trim() === String(lastPsaDetails.name || '').trim() &&
-                String(currentPsaDetails.number || '').trim() === String(lastPsaDetails.number || '').trim() &&
-                String(currentPsaDetails.grade || '').trim() === String(lastPsaDetails.grade || '').trim()
+                isMatch(currentPsaDetails.name, lastPsaDetails.name) &&
+                isMatch(currentPsaDetails.number, lastPsaDetails.number) &&
+                isMatch(currentPsaDetails.grade, lastPsaDetails.grade)
             ) {
+                isSameCard = true;
+            }
+        }
+
+        // Check 2: Fallback to previous row in Sheet (iff not already confirmed and we have a previous row)
+        if (!isSameCard && i > 0) {
+            const prevRow = rows[i - 1];
+            // We must read the raw values from the previous row object
+            const prevName = prevRow.get(NAME_HEADER);
+            const prevNumber = prevRow.get(NUMBER_HEADER);
+            const prevGrade = prevRow.get(GRADE_HEADER);
+
+            if (
+                isMatch(currentPsaDetails.name, prevName) &&
+                isMatch(currentPsaDetails.number, prevNumber) &&
+                isMatch(currentPsaDetails.grade, prevGrade)
+            ) {
+                console.log(`ℹ️  Fallback Match: Current row matches previous row in Sheet.`);
                 isSameCard = true;
             }
         }
 
         // Scrape
         if (['BOTH', 'CL'].includes(WRITE_MODE)) {
-            const newVal = await getCLValue(page, cert, lastScrapedValue, isSameCard);
+            const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
 
-            if (newVal === null) {
+            if (result === null) {
                 console.warn(`Failed to scrape value for ${cert}`);
                 continue;
             }
 
+            const { raw, higher } = result;
+
             // Update Caches
-            lastScrapedValue = newVal;
+            lastScrapedValue = raw;
             lastPsaDetails = currentPsaDetails;
 
-            // Round UP for writing to sheet
-            const newValToWrite = Math.ceil(newVal);
+            // Determine which value to write based on CL_VALUE_CHOICE
+            let newValToWrite;
+            if (CL_VALUE_CHOICE === 'HIGHER') {
+                newValToWrite = higher;
+                console.log(`👉 Using HIGHER value: ${newValToWrite}`);
+            } else {
+                // Default to RAW (Card Ladder Value) - Round UP
+                newValToWrite = Math.ceil(raw);
+                console.log(`👉 Using RAW value: ${newValToWrite}`);
+            }
 
             if (!currentVal || currentVal.toString().trim() === "") {
                 // Case: Empty Column -> Write

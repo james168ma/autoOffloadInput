@@ -68,6 +68,12 @@ To allow the script to read/write to your sheet, you need a Service Account.
     # Write Mode (Optional)
     # Options: BOTH (Default), PSA, CL
     WRITE_MODE=BOTH
+
+    # Card Ladder Value Choice (Optional)
+    # Options: RAW (Default), HIGHER
+    # RAW: Use the exact value from Card Ladder (rounded up).
+    # HIGHER: Use the higher of (Average Price) vs (Card Ladder Value).
+    CL_VALUE_CHOICE=RAW
     ```
 
 ## Usage
