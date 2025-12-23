@@ -1,0 +1,104 @@
+const { processRow } = require('../rowprocessor');
+
+// Mocks
+const mockPsaService = {
+    getDetails: jest.fn(),
+};
+const mockGetCLValue = jest.fn().mockResolvedValue(null);
+
+const services = {
+    psaService: mockPsaService,
+    getCLValue: mockGetCLValue,
+};
+
+describe('processRow Logic', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('should fetch PSA details if missing and WRITE_MODE is BOTH', async () => {
+        const rowData = {
+            cert: '123',
+            currentName: '', // Missing
+            currentNumber: '1',
+            currentGrade: '10',
+        };
+        const options = { WRITE_MODE: 'BOTH', rowNumber: 2 };
+
+        mockPsaService.getDetails.mockResolvedValue({
+            name: 'Pikachu',
+            number: '1',
+            grade: '10',
+        });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(mockPsaService.getDetails).toHaveBeenCalledWith('123');
+        expect(result.writeName).toBe('Pikachu');
+        expect(result.rowModified).toBe(true);
+    });
+
+    test('should NOT fetch PSA if WRITE_MODE is CL', async () => {
+        const rowData = { cert: '123', currentName: '' };
+        const options = { WRITE_MODE: 'CL', rowNumber: 2 };
+
+        mockGetCLValue.mockResolvedValue(null); // Ensure CL doesn't write either
+
+        const result = await processRow(rowData, services, options);
+
+        expect(mockPsaService.getDetails).not.toHaveBeenCalled();
+        expect(result.rowModified).toBe(false); // No change
+    });
+
+    test('should scrape CL value and write if empty', async () => {
+        const rowData = { cert: '123', currentVal: '' };
+        const options = { WRITE_MODE: 'BOTH', CL_VALUE_CHOICE: 'RAW', rowNumber: 2 };
+
+        mockGetCLValue.mockResolvedValue({ raw: 50.2, higher: 55 });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(mockGetCLValue).toHaveBeenCalled();
+        expect(result.writeValue).toBe(51); // Ceil(50.2)
+        expect(result.rowModified).toBe(true);
+    });
+
+    test('should report mismatch if CL value differs', async () => {
+        const rowData = { cert: '123', currentVal: '100' };
+        const options = { WRITE_MODE: 'BOTH', CL_VALUE_CHOICE: 'HIGHER', rowNumber: 2 };
+
+        mockGetCLValue.mockResolvedValue({ raw: 50, higher: 200 });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writeValue).toBeNull(); // Don't overwrite existing
+        expect(result.mismatch).toEqual({
+            row: 2,
+            cert: '123',
+            sheetVal: 100,
+            scrapedVal: 200,
+        });
+    });
+
+    test('should detect same card from previous row data', async () => {
+        const rowData = {
+            cert: '123',
+            currentName: 'Charizard',
+            currentNumber: '4',
+            currentGrade: '10',
+            prevRowData: {
+                prevName: 'Charizard',
+                prevNumber: '4',
+                prevGrade: '10',
+            },
+        };
+        const options = { WRITE_MODE: 'CL', rowNumber: 3 };
+
+        mockGetCLValue.mockResolvedValue({ raw: 100, higher: 100 });
+
+        await processRow(rowData, services, options);
+
+        // Check if getCLValue came with 'isSameCard = true' -> 3rd arg
+        expect(mockGetCLValue).toHaveBeenCalledWith('123', undefined, true);
+    });
+});
