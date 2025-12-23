@@ -166,4 +166,37 @@ describe('index.js main workflow', () => {
         expect(mockValueCell.value).toBe(100);
         expect(mockSheet.saveUpdatedCells).toHaveBeenCalled();
     });
+
+    test('should apply red background color when processRow requests it', async () => {
+        // Setup 1 row
+        const mockRow = {
+            get: jest.fn().mockReturnValue('123'),
+        };
+        mockSheet.getRows.mockResolvedValue([mockRow]);
+
+        // Mock cell objects
+        const mockValueCell = { value: '', backgroundColor: undefined };
+        const mockCertCell = { value: '123' };
+
+        mockSheet.getCellByA1.mockImplementation((a1) => {
+            if (a1.startsWith('A')) return mockCertCell;
+            if (a1.startsWith('B')) return mockValueCell;
+            return { value: 'data' };
+        });
+
+        // Mock processRow to return error color instruction
+        const { processRow } = require('../lib/rowprocessor');
+        processRow.mockResolvedValue({
+            writeErrorColor: true,
+            rowModified: true,
+            updatedLastScrapedValue: 0,
+            updatedLastPsaDetails: {},
+        });
+
+        await main();
+
+        expect(processRow).toHaveBeenCalled();
+        expect(mockValueCell.backgroundColor).toEqual({ red: 1, green: 0.8, blue: 0.8 });
+        expect(mockSheet.saveUpdatedCells).toHaveBeenCalled();
+    });
 });

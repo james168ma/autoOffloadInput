@@ -355,6 +355,11 @@ async function main() {
             console.log(`✏️ Writing value ${result.writeValue} to "${VALUE_HEADER}"`);
         }
 
+        if (result.writeErrorColor && valueCell) {
+            console.log(`🔴 Marking "${VALUE_HEADER}" red for Cert: ${cert}`);
+            valueCell.backgroundColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
+        }
+
         if (result.rowModified) {
             await sheet.saveUpdatedCells();
         }

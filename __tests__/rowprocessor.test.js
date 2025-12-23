@@ -42,7 +42,7 @@ describe('processRow Logic', () => {
     });
 
     test('should NOT fetch PSA if WRITE_MODE is CL', async () => {
-        const rowData = { cert: '123', currentName: '' };
+        const rowData = { cert: '123', currentName: '', currentVal: '100' };
         const options = { WRITE_MODE: 'CL', rowNumber: 2 };
 
         mockGetCLValue.mockResolvedValue(null); // Ensure CL doesn't write either
@@ -103,5 +103,17 @@ describe('processRow Logic', () => {
 
         // Check if getCLValue came with 'isSameCard = true' -> 3rd arg
         expect(mockGetCLValue).toHaveBeenCalledWith(mockPage, '123', undefined, true);
+    });
+
+    test('should signal error color if CL value fails to load and cell is empty', async () => {
+        const rowData = { cert: '123', currentVal: '' };
+        const options = { WRITE_MODE: 'BOTH', rowNumber: 4 };
+
+        mockGetCLValue.mockResolvedValue(null); // Simulate failure
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writeErrorColor).toBe(true);
+        expect(result.rowModified).toBe(true);
     });
 });
