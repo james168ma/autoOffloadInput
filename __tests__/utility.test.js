@@ -1,4 +1,4 @@
-const { getColLetter, isMatch, determineProcessingRange } = require('../utility');
+const { getColLetter, isMatch, determineProcessingRange } = require('../lib/utility');
 
 describe('Utility Functions', () => {
     describe('getColLetter', () => {

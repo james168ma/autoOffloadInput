@@ -22,11 +22,11 @@ jest.mock('readline', () => ({
         close: jest.fn(),
     }),
 }));
-jest.mock('../cl_service', () => ({
+jest.mock('../lib/services/cl_service', () => ({
     getCLValue: jest.fn().mockResolvedValue({ raw: 100, higher: 100 }),
 }));
-jest.mock('../psa_service');
-jest.mock('../rowprocessor', () => ({
+jest.mock('../lib/services/psa_service');
+jest.mock('../lib/rowprocessor', () => ({
     processRow: jest.fn().mockResolvedValue({
         rowModified: false,
         mismatch: null,
@@ -48,7 +48,7 @@ global.console = {
 };
 
 // Mock process.exit
-const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { });
 
 describe('index.js main workflow', () => {
     let mockSheet;
@@ -146,7 +146,7 @@ describe('index.js main workflow', () => {
         mockPage.evaluate.mockResolvedValue(false); // No login button
 
         // Mock processRow to return instruction to write 100
-        const { processRow } = require('../rowprocessor');
+        const { processRow } = require('../lib/rowprocessor');
         processRow.mockResolvedValue({
             writeValue: 100,
             rowModified: true,

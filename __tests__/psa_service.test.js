@@ -1,4 +1,4 @@
-const PsaService = require('../psa_service');
+const PsaService = require('../lib/services/psa_service');
 
 describe('PsaService', () => {
     let mockBrowser;

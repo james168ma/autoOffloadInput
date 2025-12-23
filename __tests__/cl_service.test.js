@@ -1,4 +1,4 @@
-const { getCLValue } = require('../cl_service');
+const { getCLValue } = require('../lib/services/cl_service');
 
 describe('cl_service', () => {
     let mockPage;

@@ -5,9 +5,9 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const readline = require('readline');
-const { getCLValue } = require('./cl_service');
-const { getColLetter, determineProcessingRange } = require('./utility');
-const { processRow } = require('./rowprocessor');
+const { getCLValue } = require('./lib/services/cl_service');
+const { getColLetter, determineProcessingRange } = require('./lib/utility');
+const { processRow } = require('./lib/rowprocessor');
 
 const SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -198,7 +198,7 @@ async function main() {
     );
 
     // Initialize PSA Service
-    const PsaService = require('./psa_service');
+    const PsaService = require('./lib/services/psa_service');
     const psaService = new PsaService(process.env.PSA_API_KEY, browser);
 
     // 4.2 Process Rows

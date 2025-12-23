@@ -1,4 +1,4 @@
-const { processRow } = require('../rowprocessor');
+const { processRow } = require('../lib/rowprocessor');
 
 // Mocks
 const mockPsaService = {
