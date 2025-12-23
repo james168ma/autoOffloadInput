@@ -48,7 +48,7 @@ global.console = {
 };
 
 // Mock process.exit
-const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => { });
+const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
 
 describe('index.js main workflow', () => {
     let mockSheet;
