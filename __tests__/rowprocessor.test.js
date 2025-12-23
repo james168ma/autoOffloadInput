@@ -116,4 +116,21 @@ describe('processRow Logic', () => {
         expect(result.writeErrorColor).toBe(true);
         expect(result.rowModified).toBe(true);
     });
+
+    test('should signal PSA error color if PSA fetch fails and data is missing', async () => {
+        const rowData = {
+            cert: '123',
+            currentName: '', // Missing
+            currentNumber: '', // Missing
+            currentGrade: '', // Missing
+        };
+        const options = { WRITE_MODE: 'BOTH', rowNumber: 5 };
+
+        mockPsaService.getDetails.mockResolvedValue(null); // Simulate failure
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writePsaErrorColor).toBe(true);
+        expect(result.rowModified).toBe(true);
+    });
 });

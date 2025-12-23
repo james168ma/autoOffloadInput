@@ -355,6 +355,14 @@ async function main() {
             console.log(`✏️ Writing value ${result.writeValue} to "${VALUE_HEADER}"`);
         }
 
+        if (result.writePsaErrorColor) {
+            console.log(`🔴 Marking PSA columns red for Cert: ${cert}`);
+            const errorColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
+            if (nameCell) nameCell.backgroundColor = errorColor;
+            if (numberCell) numberCell.backgroundColor = errorColor;
+            if (gradeCell) gradeCell.backgroundColor = errorColor;
+        }
+
         if (result.writeErrorColor && valueCell) {
             console.log(`🔴 Marking "${VALUE_HEADER}" red for Cert: ${cert}`);
             valueCell.backgroundColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
