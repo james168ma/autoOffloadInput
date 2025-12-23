@@ -4,7 +4,6 @@ const { JWT } = require('google-auth-library');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-const fs = require('fs');
 const readline = require('readline');
 const { getCLValue } = require('./cl_service');
 
@@ -15,20 +14,35 @@ const SCOPES = [
 
 const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout
+    output: process.stdout,
 });
 
 const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
 
+// Helper to convert 0-based column index to letter (A, B, C...)
+const getColLetter = (n) => {
+    if (n < 0) return null;
+    let letter = '';
+    while (n >= 0) {
+        letter = String.fromCharCode((n % 26) + 65) + letter;
+        n = Math.floor(n / 26) - 1;
+    }
+    return letter;
+};
+
 async function main() {
-    console.log("🚀 Starting Card Ladder Automation...");
+    console.log('🚀 Starting Card Ladder Automation...');
 
     const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL'
     console.log(`📝 Write Mode: ${WRITE_MODE}`);
 
     // 1. Setup Google Sheets
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SHEET_ID) {
-        console.error("❌ Missing environment variables. Please check .env file.");
+    if (
+        !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+        !process.env.GOOGLE_PRIVATE_KEY ||
+        !process.env.SHEET_ID
+    ) {
+        console.error('❌ Missing environment variables. Please check .env file.');
         process.exit(1);
     }
 
@@ -45,7 +59,7 @@ async function main() {
         await doc.loadInfo();
         console.log(`✅ Loaded Google Sheet: "${doc.title}"`);
     } catch (e) {
-        console.error("❌ Failed to load Google Sheet. Check ID and Permissions.");
+        console.error('❌ Failed to load Google Sheet. Check ID and Permissions.');
         console.error(e);
         process.exit(1);
     }
@@ -54,26 +68,26 @@ async function main() {
     console.log(`📄 Using sheet: "${sheet.title}"`);
 
     // 2. Launch Browser
-    console.log("🌍 Launching Browser...");
+    console.log('🌍 Launching Browser...');
     const browser = await puppeteer.launch({
         headless: false, // Must be false for manual login
         defaultViewport: null,
         userDataDir: './user_data', // SAVE SESSION DATA
-        args: ['--start-maximized']
+        args: ['--start-maximized'],
     });
 
     const page = await browser.newPage();
 
     // 3. Login Check with Persistence
     const targetUrl = 'https://app.cardladder.com/sales-history?direction=desc&sort=date';
-    console.log("➡️ Checking session...");
+    console.log('➡️ Checking session...');
     await page.goto(targetUrl, { waitUntil: 'networkidle2' });
 
     // List of reliable selectors that indicate we are logged in (e.g. user menu, dashboard)
-    // or logged out (login form). 
+    // or logged out (login form).
 
     // Give SPA a moment to settle/redirect
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
 
     // Check if we are logged out (URL includes 'login' OR 'Log In' button exists)
     const currentUrl = page.url();
@@ -81,20 +95,28 @@ async function main() {
     try {
         loginBtnExists = await page.evaluate(() => {
             const xpath = "//*[contains(text(), 'Login')]";
-            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            const result = document.evaluate(
+                xpath,
+                document,
+                null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE,
+                null
+            );
             return !!result.singleNodeValue;
         });
-    } catch (e) {
-        console.warn("⚠️ Could not check for login button (context changed?), proceeding with URL check...");
+    } catch {
+        console.warn(
+            '⚠️ Could not check for login button (context changed?), proceeding with URL check...'
+        );
     }
 
     if (currentUrl.includes('login') || loginBtnExists) {
-        console.log("🔒 Not logged in (detected Login button/URL). Attempting automation...");
+        console.log('🔒 Not logged in (detected Login button/URL). Attempting automation...');
 
         if (process.env.CL_USER && process.env.CL_PASS) {
             try {
                 // Force navigation to login page to be safe
-                console.log("➡️ Going to Login Page...");
+                console.log('➡️ Going to Login Page...');
                 await page.goto('https://app.cardladder.com/login', { waitUntil: 'networkidle2' });
 
                 await page.waitForSelector('input[type="email"]', { timeout: 10000 });
@@ -115,49 +137,50 @@ async function main() {
                 });
 
                 // Allow a brief moment for validation
-                await new Promise(r => setTimeout(r, 1000));
+                await new Promise((r) => setTimeout(r, 1000));
 
-                console.log("⌨️ Pressing Enter to submit...");
+                console.log('⌨️ Pressing Enter to submit...');
                 await page.keyboard.press('Enter');
 
                 try {
                     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
                 } catch (navErr) {
-                    console.warn("⚠️ Navigation wait ended (possibly success):", navErr.message);
+                    console.warn('⚠️ Navigation wait ended (possibly success):', navErr.message);
                 }
-                console.log("✅ Login flow completed");
+                console.log('✅ Login flow completed');
 
                 // Navigate back to Sales History
-                console.log("➡️ Navigating to Sales History...");
+                console.log('➡️ Navigating to Sales History...');
                 await page.goto(targetUrl, { waitUntil: 'networkidle2' });
-
             } catch (err) {
-                console.error("❌ Login failed:", err);
+                console.error('❌ Login failed:', err);
                 process.exit(1);
             }
         } else {
-            console.log("\n⚠️  NO CREDENTIALS FOUND (CL_USER/CL_PASS) ⚠️");
-            console.log("Please log in to Card Ladder in the opened browser window.");
-            console.log("Once you are logged in and ready, press ENTER in this terminal to continue...");
-            await askQuestion("");
+            console.log('\n⚠️  NO CREDENTIALS FOUND (CL_USER/CL_PASS) ⚠️');
+            console.log('Please log in to Card Ladder in the opened browser window.');
+            console.log(
+                'Once you are logged in and ready, press ENTER in this terminal to continue...'
+            );
+            await askQuestion('');
         }
     } else {
-        console.log("✅ Session active! Skipping login.");
+        console.log('✅ Session active! Skipping login.');
     }
-    console.log("👍 Continuing with scraping...");
+    console.log('👍 Continuing with scraping...');
 
     // 4. Process Rows
     // 4.1 FIND COLUMNS DYNAMICALLY
     await sheet.loadHeaderRow(); // Ensure headers are loaded
-    console.log("Headers found:", sheet.headerValues);
+    console.log('Headers found:', sheet.headerValues);
     const headers = sheet.headerValues;
 
     // Configurable headers
-    const CERT_HEADER = "Certification Number";
-    const VALUE_HEADER = "CL Market Value";
-    const NAME_HEADER = "Card Name";
-    const NUMBER_HEADER = "Card Number";
-    const GRADE_HEADER = "Grade";
+    const CERT_HEADER = 'Certification Number';
+    const VALUE_HEADER = 'CL Market Value';
+    const NAME_HEADER = 'Card Name';
+    const NUMBER_HEADER = 'Card Number';
+    const GRADE_HEADER = 'Grade';
 
     const certColIndex = headers.indexOf(CERT_HEADER);
     const valueColIndex = headers.indexOf(VALUE_HEADER);
@@ -174,7 +197,9 @@ async function main() {
         process.exit(1);
     }
 
-    console.log(`✅ Found Headers: "${CERT_HEADER}" (${certColIndex}) | "${VALUE_HEADER}" (${valueColIndex})`);
+    console.log(
+        `✅ Found Headers: "${CERT_HEADER}" (${certColIndex}) | "${VALUE_HEADER}" (${valueColIndex})`
+    );
 
     // Initialize PSA Service
     const PsaService = require('./psa_service');
@@ -201,23 +226,14 @@ async function main() {
         endIndex = Math.min(endRowEnv - 2, rows.length - 1);
     }
 
-    console.log(`🎯 Processing Range: Row ${startRow} to ${!isNaN(endRowEnv) ? 'Row ' + endRowEnv : 'End'} (Rows processed: ${endIndex - startIndex + 1})`);
+    console.log(
+        `🎯 Processing Range: Row ${startRow} to ${!isNaN(endRowEnv) ? 'Row ' + endRowEnv : 'End'} (Rows processed: ${endIndex - startIndex + 1})`
+    );
 
     const mismatches = [];
 
-    // Helper to convert 0-based column index to letter (A, B, C...)
-    const getColLetter = (n) => {
-        if (n < 0) return null;
-        let letter = '';
-        while (n >= 0) {
-            letter = String.fromCharCode(n % 26 + 65) + letter;
-            n = Math.floor(n / 26) - 1;
-        }
-        return letter;
-    };
-
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
-    let lastPsaDetails = null;   // Store { name, number, grade } to detect identical cards
+    let lastPsaDetails = null; // Store { name, number, grade } to detect identical cards
 
     // Options: 'RAW' (default) or 'HIGHER'
     const CL_VALUE_CHOICE = process.env.CL_VALUE_CHOICE || 'RAW';
@@ -232,20 +248,8 @@ async function main() {
         console.log(`\nProcessing Row ${rowNumber} | Cert: ${row.get(CERT_HEADER) || 'N/A'}`);
 
         // Load just the cells we need for this row to avoid range errors
-        // Convert to A1 notation? Or just use grid range. 
+        // Convert to A1 notation? Or just use grid range.
         // We need to load a range that covers both columns.
-
-        // Helper to convert 0-based column index to letter (A, B, C...)
-        const getColLetter = (n) => {
-            if (n < 0) return null;
-            let letter = '';
-            while (n >= 0) {
-                letter = String.fromCharCode(n % 26 + 65) + letter;
-                n = Math.floor(n / 26) - 1;
-            }
-            return letter;
-        };
-
         const certColLetter = getColLetter(certColIndex);
         const valueColLetter = getColLetter(valueColIndex);
 
@@ -262,11 +266,22 @@ async function main() {
         }
 
         const certCell = certColLetter ? sheet.getCellByA1(`${certColLetter}${rowNumber}`) : null;
-        const valueCell = valueColLetter ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`) : null;
+        const valueCell = valueColLetter
+            ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`)
+            : null;
 
-        const nameCell = nameColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(nameColIndex)}${rowNumber}`) : null;
-        const numberCell = numberColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(numberColIndex)}${rowNumber}`) : null;
-        const gradeCell = gradeColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(gradeColIndex)}${rowNumber}`) : null;
+        const nameCell =
+            nameColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(nameColIndex)}${rowNumber}`)
+                : null;
+        const numberCell =
+            numberColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(numberColIndex)}${rowNumber}`)
+                : null;
+        const gradeCell =
+            gradeColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(gradeColIndex)}${rowNumber}`)
+                : null;
 
         const cert = certCell ? certCell.value : null;
         const currentVal = valueCell ? valueCell.value : null;
@@ -283,13 +298,15 @@ async function main() {
         let currentPsaDetails = {
             name: nameCell ? nameCell.value : null,
             number: numberCell ? numberCell.value : null,
-            grade: gradeCell ? gradeCell.value : null
+            grade: gradeCell ? gradeCell.value : null,
         };
 
         // --- PSA INTEGRATION ---
-        const needsName = nameCell && (!nameCell.value || nameCell.value.toString().trim() === "");
-        const needsNumber = numberCell && (!numberCell.value || numberCell.value.toString().trim() === "");
-        const needsGrade = gradeCell && (!gradeCell.value || gradeCell.value.toString().trim() === "");
+        const needsName = nameCell && (!nameCell.value || nameCell.value.toString().trim() === '');
+        const needsNumber =
+            numberCell && (!numberCell.value || numberCell.value.toString().trim() === '');
+        const needsGrade =
+            gradeCell && (!gradeCell.value || gradeCell.value.toString().trim() === '');
 
         if (needsName || needsNumber || needsGrade) {
             // ONLY fetch/write if mode is BOTH or PSA
@@ -361,8 +378,10 @@ async function main() {
             const SKIP_CL_CHECK = (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true';
 
             // Check if we should skip because value exists
-            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== "") {
-                console.log(`⏭️  Skipping CL Value Check (SKIP_CL_CHECK=true & value exists: ${currentVal})`);
+            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== '') {
+                console.log(
+                    `⏭️  Skipping CL Value Check (SKIP_CL_CHECK=true & value exists: ${currentVal})`
+                );
             } else {
                 const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
 
@@ -388,7 +407,7 @@ async function main() {
                     console.log(`👉 Using RAW value: ${newValToWrite}`);
                 }
 
-                if (!currentVal || currentVal.toString().trim() === "") {
+                if (!currentVal || currentVal.toString().trim() === '') {
                     // Case: Empty Column -> Write
                     console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
                     if (valueCell) {
@@ -401,12 +420,14 @@ async function main() {
                     const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
 
                     if (cleanCurrent !== newValToWrite) {
-                        console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
+                        console.warn(
+                            `⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`
+                        );
                         mismatches.push({
                             row: rowNumber,
                             cert: cert,
                             sheetVal: cleanCurrent,
-                            scrapedVal: newValToWrite
+                            scrapedVal: newValToWrite,
                         });
                     } else {
                         console.log(`✅ Verified match: ${cleanCurrent}`);
@@ -422,12 +443,12 @@ async function main() {
     }
 
     // 5. Summary
-    console.log("\n\n🏁 Processing Complete!");
+    console.log('\n\n🏁 Processing Complete!');
     if (mismatches.length > 0) {
-        console.warn("\n⚠️ Found Mismatches:");
+        console.warn('\n⚠️ Found Mismatches:');
         console.table(mismatches);
     } else {
-        console.log("No mismatches found.");
+        console.log('No mismatches found.');
     }
 
     await browser.close();

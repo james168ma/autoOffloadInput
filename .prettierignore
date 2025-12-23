@@ -1,0 +1,6 @@
+node_modules
+package-lock.json
+user_data
+*.log
+test_output_*.txt
+cl_test_output.txt

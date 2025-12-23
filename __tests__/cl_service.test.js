@@ -41,15 +41,13 @@ describe('cl_service', () => {
         expect(result).toBeNull();
     });
 
-
     test('should return null if results do not load (timeout)', async () => {
         // Setup successful clicks and type
         mockPage.$.mockResolvedValue(mockElement);
 
         // Mock results container check finding nothing
         // using mockImplementation to debug calls if needed, otherwise chain is fine
-        mockPage.$
-            .mockResolvedValueOnce(mockElement) // search icon
+        mockPage.$.mockResolvedValueOnce(mockElement) // search icon
             .mockResolvedValueOnce(mockElement) // input
             .mockResolvedValueOnce(mockElement) // submit
             .mockResolvedValue(null); // container search (and subsequent calls)
@@ -68,20 +66,20 @@ describe('cl_service', () => {
 
         // 4. Results container check (loop)
         const mockContainer = {
-            evaluate: jest.fn().mockResolvedValue(3)
+            evaluate: jest.fn().mockResolvedValue(3),
         };
         mockPage.$.mockResolvedValueOnce(mockContainer);
 
         // 5. Card Ladder Value and Prices
         mockPage.evaluate
-            .mockResolvedValueOnce(150.50) // Card Ladder Value found immediately
+            .mockResolvedValueOnce(150.5) // Card Ladder Value found immediately
             .mockResolvedValueOnce([100, 150, 200]); // Prices found
 
         const result = await getCLValue(mockPage, '123456');
 
         expect(result).toEqual({
-            raw: 150.50,
-            higher: 151
+            raw: 150.5,
+            higher: 151,
         });
     });
 

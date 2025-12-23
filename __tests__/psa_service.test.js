@@ -33,12 +33,12 @@ describe('PsaService', () => {
         const mockCertData = {
             Subject: 'Michael Jordan',
             CardNumber: '23',
-            CardGrade: 'GEM MT 10'
+            CardGrade: 'GEM MT 10',
         };
 
         global.fetch.mockResolvedValueOnce({
             ok: true,
-            json: jest.fn().mockResolvedValue({ PSACert: mockCertData })
+            json: jest.fn().mockResolvedValue({ PSACert: mockCertData }),
         });
 
         const result = await psaService.getDetails('123456');
@@ -46,14 +46,14 @@ describe('PsaService', () => {
         expect(global.fetch).toHaveBeenCalledWith(
             expect.stringContaining('123456'),
             expect.objectContaining({
-                headers: expect.objectContaining({ 'Authorization': `Bearer ${API_KEY}` })
+                headers: expect.objectContaining({ Authorization: `Bearer ${API_KEY}` }),
             })
         );
 
         expect(result).toEqual({
             name: 'Michael Jordan',
             number: '23',
-            grade: 10
+            grade: 10,
         });
     });
 
@@ -64,9 +64,9 @@ describe('PsaService', () => {
                 PSACert: {
                     Subject: 'Test Card',
                     CardNumber: '1',
-                    CardGrade: 'Near Mint 8.5'
-                }
-            })
+                    CardGrade: 'Near Mint 8.5',
+                },
+            }),
         });
 
         const result = await psaService.getDetails('123456');
@@ -78,14 +78,14 @@ describe('PsaService', () => {
         global.fetch.mockResolvedValueOnce({
             ok: false,
             status: 404,
-            statusText: 'Not Found'
+            statusText: 'Not Found',
         });
 
         // Mock Scraper success
         mockPage.evaluate.mockReturnValue({
             name: 'Scraped Name',
             number: 'Scraped #1',
-            grade: 9
+            grade: 9,
         });
 
         const result = await psaService.getDetails('fallback_cert');
@@ -99,7 +99,7 @@ describe('PsaService', () => {
         expect(result).toEqual({
             name: 'Scraped Name',
             number: 'Scraped #1',
-            grade: 9
+            grade: 9,
         });
     });
 
@@ -109,7 +109,7 @@ describe('PsaService', () => {
         mockPage.evaluate.mockReturnValue({
             name: 'NoKey Name',
             number: 'NoKey',
-            grade: 5
+            grade: 5,
         });
 
         await serviceNoKey.getDetails('nokey_cert');
@@ -128,7 +128,7 @@ describe('PsaService', () => {
         mockPage.evaluate.mockReturnValue({
             name: 'CF Card',
             number: '1',
-            grade: 10
+            grade: 10,
         });
 
         await serviceNoKey.getDetails('cf_cert');

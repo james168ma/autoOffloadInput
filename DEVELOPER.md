@@ -10,13 +10,34 @@ npm install
 
 This will also automatically initialize **Husky** git hooks.
 
-## Testing
+## Development Scripts
 
+### Testing
 This project uses [Jest](https://jestjs.io/) for unit testing.
 
-To run tests manually:
 ```bash
 npm test
+```
+
+### Linting
+We use [ESLint](https://eslint.org/) to enforce code quality.
+
+To run the linter:
+```bash
+npm run lint
+```
+
+To automatically fix fixable errors:
+```bash
+npm run lint:fix
+```
+
+### Formatting
+We use [Prettier](https://prettier.io/) for code formatting.
+
+To format all files:
+```bash
+npm run format
 ```
 
 ## Git Hooks
@@ -24,12 +45,11 @@ npm test
 We use [Husky](https://typicode.github.io/husky/) to manage git hooks.
 
 ### Pre-commit Hook
-A `pre-commit` hook is configured to run `npm test` automatically before every commit.
+A `pre-commit` hook is configured to automatically run:
+1.  **Linting**: `npm run lint`
+2.  **Tests**: `npm test`
 
--   If the tests pass, the commit proceeds.
--   If any test fails, the commit is aborted.
-
-This ensures that no broken code is committed to the repository.
+If either fails, the commit is aborted. This ensures that the codebase remains clean and bug-free.
 
 ### Bypassing Hooks
 If you absolutely must bypass the hook (e.g., for a WIP commit being saved locally), you can use the `--no-verify` flag:
@@ -37,4 +57,5 @@ If you absolutely must bypass the hook (e.g., for a WIP commit being saved local
 ```bash
 git commit -m "wip" --no-verify
 ```
-*Use this with caution.*
+
+_Use this with caution._
