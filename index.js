@@ -302,6 +302,7 @@ async function main() {
         const services = {
             psaService,
             getCLValue,
+            page,
         };
 
         // Options
@@ -314,8 +315,14 @@ async function main() {
             rowNumber,
         };
 
+        console.log(
+            `\nProcessing Row ${rowNumber} | Cert: ${cert} | Row data: ${JSON.stringify(rowData)}`
+        );
+
         // EXECUTE LOGIC
         const result = await processRow(rowData, services, options);
+
+        console.log(`✅ Row ${rowNumber} processed | Result: ${JSON.stringify(result)}`);
 
         // Update State
         lastScrapedValue = result.updatedLastScrapedValue;

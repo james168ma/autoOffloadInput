@@ -6,9 +6,12 @@ const mockPsaService = {
 };
 const mockGetCLValue = jest.fn().mockResolvedValue(null);
 
+const mockPage = { name: 'MockPage' };
+
 const services = {
     psaService: mockPsaService,
     getCLValue: mockGetCLValue,
+    page: mockPage,
 };
 
 describe('processRow Logic', () => {
@@ -99,6 +102,6 @@ describe('processRow Logic', () => {
         await processRow(rowData, services, options);
 
         // Check if getCLValue came with 'isSameCard = true' -> 3rd arg
-        expect(mockGetCLValue).toHaveBeenCalledWith('123', undefined, true);
+        expect(mockGetCLValue).toHaveBeenCalledWith(mockPage, '123', undefined, true);
     });
 });
