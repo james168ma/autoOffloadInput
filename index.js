@@ -23,11 +23,7 @@ const askQuestion = (query) => new Promise((resolve) => rl.question(query, resol
 async function main() {
     console.log("🚀 Starting Card Ladder Automation...");
 
-    // LIMITATION: Only process this many rows per run (set to Infinity for all)
-    const MAX_ROWS = 5;
     const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL'
-
-    console.log(`⚠️  Max Rows Limit set to: ${MAX_ROWS}`);
     console.log(`📝 Write Mode: ${WRITE_MODE}`);
 
     // 1. Setup Google Sheets
