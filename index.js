@@ -362,52 +362,59 @@ async function main() {
 
         // Scrape
         if (['BOTH', 'CL'].includes(WRITE_MODE)) {
-            const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
+            const SKIP_CL_CHECK = (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true';
 
-            if (result === null) {
-                console.warn(`Failed to scrape value for ${cert}`);
-                continue;
-            }
-
-            const { raw, higher } = result;
-
-            // Update Caches
-            lastScrapedValue = raw;
-            lastPsaDetails = currentPsaDetails;
-
-            // Determine which value to write based on CL_VALUE_CHOICE
-            let newValToWrite;
-            if (CL_VALUE_CHOICE === 'HIGHER') {
-                newValToWrite = higher;
-                console.log(`👉 Using HIGHER value: ${newValToWrite}`);
+            // Check if we should skip because value exists
+            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== "") {
+                console.log(`⏭️  Skipping CL Value Check (SKIP_CL_CHECK=true & value exists: ${currentVal})`);
             } else {
-                // Default to RAW (Card Ladder Value) - Round UP
-                newValToWrite = Math.ceil(raw);
-                console.log(`👉 Using RAW value: ${newValToWrite}`);
-            }
+                const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
 
-            if (!currentVal || currentVal.toString().trim() === "") {
-                // Case: Empty Column -> Write
-                console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
-                if (valueCell) {
-                    valueCell.value = newValToWrite;
-                    rowModified = true;
+                if (result === null) {
+                    console.warn(`Failed to scrape value for ${cert}`);
+                    continue;
                 }
-            } else {
-                // Case: Filled -> Compare
-                // Clean currentVal (remove $ or , or %)
-                const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
 
-                if (cleanCurrent !== newValToWrite) {
-                    console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
-                    mismatches.push({
-                        row: rowNumber,
-                        cert: cert,
-                        sheetVal: cleanCurrent,
-                        scrapedVal: newValToWrite
-                    });
+                const { raw, higher } = result;
+
+                // Update Caches
+                lastScrapedValue = raw;
+                lastPsaDetails = currentPsaDetails;
+
+                // Determine which value to write based on CL_VALUE_CHOICE
+                let newValToWrite;
+                if (CL_VALUE_CHOICE === 'HIGHER') {
+                    newValToWrite = higher;
+                    console.log(`👉 Using HIGHER value: ${newValToWrite}`);
                 } else {
-                    console.log(`✅ Verified match: ${cleanCurrent}`);
+                    // Default to RAW (Card Ladder Value) - Round UP
+                    newValToWrite = Math.ceil(raw);
+                    console.log(`👉 Using RAW value: ${newValToWrite}`);
+                }
+
+                if (!currentVal || currentVal.toString().trim() === "") {
+                    // Case: Empty Column -> Write
+                    console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
+                    if (valueCell) {
+                        valueCell.value = newValToWrite;
+                        rowModified = true;
+                    }
+                } else {
+                    // Case: Filled -> Compare
+                    // Clean currentVal (remove $ or , or %)
+                    const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
+
+                    if (cleanCurrent !== newValToWrite) {
+                        console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
+                        mismatches.push({
+                            row: rowNumber,
+                            cert: cert,
+                            sheetVal: cleanCurrent,
+                            scrapedVal: newValToWrite
+                        });
+                    } else {
+                        console.log(`✅ Verified match: ${cleanCurrent}`);
+                    }
                 }
             }
         } else {

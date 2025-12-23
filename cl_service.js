@@ -78,18 +78,6 @@ async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck
         }
         await wait(500);
 
-        // Scrape Prices
-        // We evaluate in the browser context to be efficient/safe
-        const prices = await page.evaluate((selectors) => {
-            return selectors.map(sel => {
-                const el = document.querySelector(sel);
-                if (!el) return 0;
-                return parseFloat(el.textContent.replace(/[^0-9.]/g, "")) || 0;
-            });
-        }, priceSelectors);
-
-        const average = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
-
         // Scrape Card Ladder Value
         attempts = 0;
         let cardLadderValue = 0;
@@ -133,6 +121,18 @@ async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck
         } else if (previousValue !== null && cardLadderValue === previousValue) {
             console.log(`ℹ️ Value remained ${cardLadderValue} after waiting. Assuming match.`);
         }
+
+        // Scrape Prices
+        // We evaluate in the browser context to be efficient/safe
+        const prices = await page.evaluate((selectors) => {
+            return selectors.map(sel => {
+                const el = document.querySelector(sel);
+                if (!el) return 0;
+                return parseFloat(el.textContent.replace(/[^0-9.]/g, "")) || 0;
+            });
+        }, priceSelectors);
+
+        const average = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
 
         const higherValue = Math.ceil(Math.max(average, cardLadderValue));
         console.log("💵 Prices:", prices);

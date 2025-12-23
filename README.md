@@ -74,6 +74,10 @@ To allow the script to read/write to your sheet, you need a Service Account.
     # RAW: Use the exact value from Card Ladder (rounded up).
     # HIGHER: Use the higher of (Average Price) vs (Card Ladder Value).
     CL_VALUE_CHOICE=RAW
+
+    # Skip CL Check (Optional)
+    # If true, skips CL scrape if a value already exists in the sheet.
+    SKIP_CL_CHECK=true
     ```
 
 ## Usage
