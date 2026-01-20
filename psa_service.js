@@ -45,10 +45,14 @@ class PsaService {
                             grade = parseFloat(gradeMatch[1]); // Convert to Number to avoid '10 in Sheets
                         }
 
+                        // Extract image URL if available
+                        const imageUrl = certData.FrontImageURL || certData.ImageURL || certData.ImageUrl || "";
+
                         return {
                             name: certData.Subject || certData.CardName || "", // Fallback field names just in case
                             number: certData.CardNumber || "",
-                            grade: grade
+                            grade: grade,
+                            imageUrl: imageUrl
                         };
                     }
                 } else {
@@ -85,20 +89,23 @@ class PsaService {
 
             await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
+            // Wait for potential Cloudflare check
+            await wait(5000);
+
             // specific cloudflare check from example
             try {
                 const cfCheckbox = await page.$('input[type="checkbox"]');
                 if (cfCheckbox) {
                     console.log("☁️ [PSA Scraper] Cloudflare detected...");
                     await cfCheckbox.click();
-                    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 });
+                    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
                 }
             } catch (e) { /* ignore */ }
 
             // Wait for main content
             try {
                 // Wait for at least one dt element (label)
-                await page.waitForSelector("dt", { timeout: 10000 });
+                await page.waitForSelector("dt", { timeout: 30000 });
             } catch (e) {
                 console.warn("⚠️ [PSA Scraper] Timeout waiting for content.");
                 return null;
@@ -140,10 +147,21 @@ class PsaService {
                     grade = parseFloat(gradeNumberMatch[1]);
                 }
 
-                return { name, number, grade };
+                // Extract image URL - PSA typically has an img tag with the card image
+                let imageUrl = "";
+                const imgEl = document.querySelector('img[alt*="Card"], img[src*="cert"], img.card-image, section img');
+                if (imgEl) {
+                    imageUrl = imgEl.src || "";
+                }
+
+                return { name, number, grade, imageUrl };
             });
 
             console.log(`✅ [PSA Scraper] Found: ${data.name} | Grade: ${data.grade}`);
+            
+            // Add delay between requests to avoid bot detection
+            await wait(2000);
+            
             return data;
 
         } catch (error) {

@@ -3,12 +3,14 @@ const MAX_RETRIES = 30;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 const resultsContainerSelector = "#content > div > section > div > div.results > div.list";
+const firstResultLinkSelector = "#content > div > section > div > div.results > div.list > a:nth-child(1)";
 const priceSelectors = [
     "#content > div > section > div > div.results > div.list > a:nth-child(1) > div.fields > div:nth-child(3) > div > span",
     "#content > div > section > div > div.results > div.list > a:nth-child(2) > div.fields > div:nth-child(3) > div > span",
     "#content > div > section > div > div.results > div.list > a:nth-child(3) > div.fields > div:nth-child(3) > div > span"
 ];
 const cardLadderSelector = "#content > div > section > div > div.estimate > div > div.value";
+const confidenceBarsSelector = "span.confidence-bars";
 
 const searchIconSelector = "#content > div > section > div > div.align.collapse-end.flex > div.shared-filters > div.align.small-gap > div.search-area.search-area-filters > div > div.input-wrapper > div > button > i";
 const inputSelector = "#content > div > section > div > div.modal-backdrop.backdrop.default > div > div > section > div > form > div.text-input > div > div.input-wrapper > input[type=text]";
@@ -19,7 +21,7 @@ const submitBtnSelector = "#content > div > section > div > div.modal-backdrop.b
  * @param {import('puppeteer').Page} page 
  * @param {string} certNumber 
  * @param {number|null} previousValue - The raw value of the previous card to check for stale data
- * @returns {Promise<{raw: number, higher: number}|null>} Object containing raw and higher values, or null if failed
+ * @returns {Promise<{raw: number, higher: number, confidence: number}|null>} Object containing raw, higher values, and confidence (1-5), or null if failed
  */
 async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck = false) {
     if (!certNumber) return null;
@@ -140,10 +142,45 @@ async function getCLValue(page, certNumber, previousValue = null, skipStaleCheck
         console.log("🏷 Card Ladder Value (Raw):", cardLadderValue);
         console.log("💰 Higher Value (rounded UP):", higherValue);
 
+        // Scrape Confidence Level (1-5)
+        let confidence = 0;
+        try {
+            // Click on first result to get detailed view
+            const firstLink = await page.$(firstResultLinkSelector);
+            if (firstLink) {
+                await firstLink.click();
+                await wait(2000); // Wait for detail view to load
+
+                // Extract confidence from class name (e.g., "confidence-5" -> 5)
+                confidence = await page.evaluate((sel) => {
+                    const el = document.querySelector(sel);
+                    if (el) {
+                        const classes = el.className;
+                        const match = classes.match(/confidence-(\d+)/);
+                        if (match) {
+                            return parseInt(match[1]);
+                        }
+                    }
+                    return 0;
+                }, confidenceBarsSelector);
+
+                console.log("🎯 Confidence Level:", confidence);
+
+                // Navigate back to search results
+                await page.goBack();
+                await wait(1000);
+            } else {
+                console.warn("⚠️ Could not find first result link for confidence check");
+            }
+        } catch (err) {
+            console.warn("⚠️ Failed to scrape confidence:", err.message);
+        }
+
         // Return raw value so we can cache it for next time
         return {
             raw: cardLadderValue,
-            higher: higherValue
+            higher: higherValue,
+            confidence: confidence
         };
 
     } catch (error) {

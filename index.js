@@ -25,7 +25,7 @@ async function main() {
 
     // LIMITATION: Only process this many rows per run (set to Infinity for all)
     const MAX_ROWS = 5;
-    const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL'
+    const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL', 'CONFIDENCE'
 
     console.log(`⚠️  Max Rows Limit set to: ${MAX_ROWS}`);
     console.log(`📝 Write Mode: ${WRITE_MODE}`);
@@ -158,23 +158,31 @@ async function main() {
 
     // Configurable headers
     const CERT_HEADER = "Certification Number";
-    const VALUE_HEADER = "CL Market Value";
+    const VALUE_HEADER = "1/19 Scripted Vals";
     const NAME_HEADER = "Card Name";
     const NUMBER_HEADER = "Card Number";
     const GRADE_HEADER = "Grade";
+    const CONFIDENCE_HEADER = "CL Confidence Level";
 
     const certColIndex = headers.indexOf(CERT_HEADER);
     const valueColIndex = headers.indexOf(VALUE_HEADER);
     const nameColIndex = headers.indexOf(NAME_HEADER);
     const numberColIndex = headers.indexOf(NUMBER_HEADER);
     const gradeColIndex = headers.indexOf(GRADE_HEADER);
+    const confidenceColIndex = headers.indexOf(CONFIDENCE_HEADER);
 
     if (certColIndex === -1) {
         console.error(`❌ Could not find header "${CERT_HEADER}"`);
         process.exit(1);
     }
-    if (valueColIndex === -1) {
+    // Only require CL Market Value column if we're writing CL data (not in CONFIDENCE-only mode)
+    if (valueColIndex === -1 && ['BOTH', 'CL'].includes(WRITE_MODE)) {
         console.error(`❌ Could not find header "${VALUE_HEADER}"`);
+        process.exit(1);
+    }
+    // Only require Confidence column if we're writing confidence data
+    if (confidenceColIndex === -1 && ['BOTH', 'CL', 'CONFIDENCE'].includes(WRITE_MODE)) {
+        console.error(`❌ Could not find header "${CONFIDENCE_HEADER}"`);
         process.exit(1);
     }
 
@@ -252,11 +260,13 @@ async function main() {
 
         const certColLetter = getColLetter(certColIndex);
         const valueColLetter = getColLetter(valueColIndex);
+        const confidenceColLetter = getColLetter(confidenceColIndex);
 
         // Prepare ranges to load
         const cellsToLoad = [];
         if (certColLetter) cellsToLoad.push(`${certColLetter}${rowNumber}`);
         if (valueColLetter) cellsToLoad.push(`${valueColLetter}${rowNumber}`);
+        if (confidenceColLetter) cellsToLoad.push(`${confidenceColLetter}${rowNumber}`);
         if (nameColIndex !== -1) cellsToLoad.push(`${getColLetter(nameColIndex)}${rowNumber}`);
         if (numberColIndex !== -1) cellsToLoad.push(`${getColLetter(numberColIndex)}${rowNumber}`);
         if (gradeColIndex !== -1) cellsToLoad.push(`${getColLetter(gradeColIndex)}${rowNumber}`);
@@ -267,6 +277,7 @@ async function main() {
 
         const certCell = certColLetter ? sheet.getCellByA1(`${certColLetter}${rowNumber}`) : null;
         const valueCell = valueColLetter ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`) : null;
+        const confidenceCell = confidenceColLetter ? sheet.getCellByA1(`${confidenceColLetter}${rowNumber}`) : null;
 
         const nameCell = nameColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(nameColIndex)}${rowNumber}`) : null;
         const numberCell = numberColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(numberColIndex)}${rowNumber}`) : null;
@@ -360,12 +371,12 @@ async function main() {
             }
         }
 
-        // Scrape
-        if (['BOTH', 'CL'].includes(WRITE_MODE)) {
+        // Scrape CL data (value and/or confidence)
+        if (['BOTH', 'CL', 'CONFIDENCE'].includes(WRITE_MODE)) {
             const SKIP_CL_CHECK = (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true';
 
-            // Check if we should skip because value exists
-            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== "") {
+            // Check if we should skip because value exists (only for CL/BOTH modes, not CONFIDENCE)
+            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== "" && WRITE_MODE !== 'CONFIDENCE') {
                 console.log(`⏭️  Skipping CL Value Check (SKIP_CL_CHECK=true & value exists: ${currentVal})`);
             } else {
                 const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
@@ -375,53 +386,78 @@ async function main() {
                     continue;
                 }
 
-                const { raw, higher } = result;
+                const { raw, higher, confidence } = result;
 
                 // Update Caches
                 lastScrapedValue = raw;
                 lastPsaDetails = currentPsaDetails;
 
-                // Determine which value to write based on CL_VALUE_CHOICE
-                let newValToWrite;
-                if (CL_VALUE_CHOICE === 'HIGHER') {
-                    newValToWrite = higher;
-                    console.log(`👉 Using HIGHER value: ${newValToWrite}`);
-                } else {
-                    // Default to RAW (Card Ladder Value) - Round UP
-                    newValToWrite = Math.ceil(raw);
-                    console.log(`👉 Using RAW value: ${newValToWrite}`);
+                // Handle CL Value writing (for BOTH and CL modes only)
+                if (['BOTH', 'CL'].includes(WRITE_MODE)) {
+                    // Determine which value to write based on CL_VALUE_CHOICE
+                    let newValToWrite;
+                    if (CL_VALUE_CHOICE === 'HIGHER') {
+                        newValToWrite = higher;
+                        console.log(`👉 Using HIGHER value: ${newValToWrite}`);
+                    } else {
+                        // Default to RAW (Card Ladder Value) - Round UP
+                        newValToWrite = Math.ceil(raw);
+                        console.log(`👉 Using RAW value: ${newValToWrite}`);
+                    }
+
+                    if (!currentVal || currentVal.toString().trim() === "") {
+                        // Case: Empty Column -> Write
+                        console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
+                        if (valueCell) {
+                            valueCell.value = newValToWrite;
+                            rowModified = true;
+                        }
+                    } else {
+                        // Case: Filled -> Compare
+                        // Clean currentVal (remove $ or , or %)
+                        const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
+
+                        if (cleanCurrent !== newValToWrite) {
+                            console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
+                            mismatches.push({
+                                row: rowNumber,
+                                cert: cert,
+                                sheetVal: cleanCurrent,
+                                scrapedVal: newValToWrite
+                            });
+                        } else {
+                            console.log(`✅ Verified match: ${cleanCurrent}`);
+                        }
+                    }
                 }
 
-                if (!currentVal || currentVal.toString().trim() === "") {
-                    // Case: Empty Column -> Write
-                    console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
-                    if (valueCell) {
-                        valueCell.value = newValToWrite;
-                        rowModified = true;
-                    }
-                } else {
-                    // Case: Filled -> Compare
-                    // Clean currentVal (remove $ or , or %)
-                    const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
-
-                    if (cleanCurrent !== newValToWrite) {
-                        console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
-                        mismatches.push({
-                            row: rowNumber,
-                            cert: cert,
-                            sheetVal: cleanCurrent,
-                            scrapedVal: newValToWrite
-                        });
-                    } else {
-                        console.log(`✅ Verified match: ${cleanCurrent}`);
-                    }
+                // Handle Confidence writing (for BOTH, CL, and CONFIDENCE modes)
+                if (confidenceCell && confidence > 0) {
+                    console.log(`✏️ Writing confidence ${confidence} to "${CONFIDENCE_HEADER}"`);
+                    confidenceCell.value = confidence;
+                    rowModified = true;
+                } else if (confidence === 0) {
+                    console.warn(`⚠️ Could not determine confidence for ${cert}`);
                 }
             }
         } else {
             console.log(`⏭️  Skipping CL Value (Write Mode: ${WRITE_MODE})`);
         }
         if (rowModified) {
-            await sheet.saveUpdatedCells();
+            try {
+                await sheet.saveUpdatedCells();
+            } catch (saveError) {
+                console.error(`❌ Failed to save row ${rowNumber}:`, saveError.message);
+                // Retry once
+                try {
+                    console.log(`🔄 Retrying save for row ${rowNumber}...`);
+                    await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
+                    await sheet.saveUpdatedCells();
+                    console.log(`✅ Retry successful for row ${rowNumber}`);
+                } catch (retryError) {
+                    console.error(`❌ Retry failed for row ${rowNumber}:`, retryError.message);
+                }
+            }
         }
     }
 
