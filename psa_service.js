@@ -45,14 +45,10 @@ class PsaService {
                             grade = parseFloat(gradeMatch[1]); // Convert to Number to avoid '10 in Sheets
                         }
 
-                        // Extract image URL if available
-                        const imageUrl = certData.FrontImageURL || certData.ImageURL || certData.ImageUrl || "";
-
                         return {
                             name: certData.Subject || certData.CardName || "", // Fallback field names just in case
                             number: certData.CardNumber || "",
-                            grade: grade,
-                            imageUrl: imageUrl
+                            grade: grade
                         };
                     }
                 } else {
@@ -147,14 +143,7 @@ class PsaService {
                     grade = parseFloat(gradeNumberMatch[1]);
                 }
 
-                // Extract image URL - PSA typically has an img tag with the card image
-                let imageUrl = "";
-                const imgEl = document.querySelector('img[alt*="Card"], img[src*="cert"], img.card-image, section img');
-                if (imgEl) {
-                    imageUrl = imgEl.src || "";
-                }
-
-                return { name, number, grade, imageUrl };
+                return { name, number, grade };
             });
 
             console.log(`✅ [PSA Scraper] Found: ${data.name} | Grade: ${data.grade}`);
