@@ -4,9 +4,10 @@ const { JWT } = require('google-auth-library');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
-const fs = require('fs');
 const readline = require('readline');
-const { getCLValue } = require('./cl_service');
+const { getCLValue } = require('./lib/services/cl_service');
+const { getColLetter, determineProcessingRange } = require('./lib/utility');
+const { processRow } = require('./lib/rowprocessor');
 
 const SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -15,24 +16,29 @@ const SCOPES = [
 
 const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout
+    output: process.stdout,
 });
 
 const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
 
+const cleanCurrentVal = (val) => {
+    if (!val || String(val).trim() === '') return '';
+    return val;
+};
+
 async function main() {
-    console.log("🚀 Starting Card Ladder Automation...");
+    console.log('🚀 Starting Card Ladder Automation...');
 
-    // LIMITATION: Only process this many rows per run (set to Infinity for all)
-    const MAX_ROWS = 5;
     const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL', 'CONFIDENCE'
-
-    console.log(`⚠️  Max Rows Limit set to: ${MAX_ROWS}`);
     console.log(`📝 Write Mode: ${WRITE_MODE}`);
 
     // 1. Setup Google Sheets
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SHEET_ID) {
-        console.error("❌ Missing environment variables. Please check .env file.");
+    if (
+        !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+        !process.env.GOOGLE_PRIVATE_KEY ||
+        !process.env.SHEET_ID
+    ) {
+        console.error('❌ Missing environment variables. Please check .env file.');
         process.exit(1);
     }
 
@@ -49,7 +55,7 @@ async function main() {
         await doc.loadInfo();
         console.log(`✅ Loaded Google Sheet: "${doc.title}"`);
     } catch (e) {
-        console.error("❌ Failed to load Google Sheet. Check ID and Permissions.");
+        console.error('❌ Failed to load Google Sheet. Check ID and Permissions.');
         console.error(e);
         process.exit(1);
     }
@@ -58,26 +64,26 @@ async function main() {
     console.log(`📄 Using sheet: "${sheet.title}"`);
 
     // 2. Launch Browser
-    console.log("🌍 Launching Browser...");
+    console.log('🌍 Launching Browser...');
     const browser = await puppeteer.launch({
         headless: false, // Must be false for manual login
         defaultViewport: null,
         userDataDir: './user_data', // SAVE SESSION DATA
-        args: ['--start-maximized']
+        args: ['--start-maximized'],
     });
 
     const page = await browser.newPage();
 
     // 3. Login Check with Persistence
     const targetUrl = 'https://app.cardladder.com/sales-history?direction=desc&sort=date';
-    console.log("➡️ Checking session...");
+    console.log('➡️ Checking session...');
     await page.goto(targetUrl, { waitUntil: 'networkidle2' });
 
     // List of reliable selectors that indicate we are logged in (e.g. user menu, dashboard)
-    // or logged out (login form). 
+    // or logged out (login form).
 
     // Give SPA a moment to settle/redirect
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
 
     // Check if we are logged out (URL includes 'login' OR 'Log In' button exists)
     const currentUrl = page.url();
@@ -85,20 +91,28 @@ async function main() {
     try {
         loginBtnExists = await page.evaluate(() => {
             const xpath = "//*[contains(text(), 'Login')]";
-            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            const result = document.evaluate(
+                xpath,
+                document,
+                null,
+                XPathResult.FIRST_ORDERED_NODE_TYPE,
+                null
+            );
             return !!result.singleNodeValue;
         });
-    } catch (e) {
-        console.warn("⚠️ Could not check for login button (context changed?), proceeding with URL check...");
+    } catch {
+        console.warn(
+            '⚠️ Could not check for login button (context changed?), proceeding with URL check...'
+        );
     }
 
     if (currentUrl.includes('login') || loginBtnExists) {
-        console.log("🔒 Not logged in (detected Login button/URL). Attempting automation...");
+        console.log('🔒 Not logged in (detected Login button/URL). Attempting automation...');
 
         if (process.env.CL_USER && process.env.CL_PASS) {
             try {
                 // Force navigation to login page to be safe
-                console.log("➡️ Going to Login Page...");
+                console.log('➡️ Going to Login Page...');
                 await page.goto('https://app.cardladder.com/login', { waitUntil: 'networkidle2' });
 
                 await page.waitForSelector('input[type="email"]', { timeout: 10000 });
@@ -119,41 +133,42 @@ async function main() {
                 });
 
                 // Allow a brief moment for validation
-                await new Promise(r => setTimeout(r, 1000));
+                await new Promise((r) => setTimeout(r, 1000));
 
-                console.log("⌨️ Pressing Enter to submit...");
+                console.log('⌨️ Pressing Enter to submit...');
                 await page.keyboard.press('Enter');
 
                 try {
                     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
                 } catch (navErr) {
-                    console.warn("⚠️ Navigation wait ended (possibly success):", navErr.message);
+                    console.warn('⚠️ Navigation wait ended (possibly success):', navErr.message);
                 }
-                console.log("✅ Login flow completed");
+                console.log('✅ Login flow completed');
 
                 // Navigate back to Sales History
-                console.log("➡️ Navigating to Sales History...");
+                console.log('➡️ Navigating to Sales History...');
                 await page.goto(targetUrl, { waitUntil: 'networkidle2' });
-
             } catch (err) {
-                console.error("❌ Login failed:", err);
+                console.error('❌ Login failed:', err);
                 process.exit(1);
             }
         } else {
-            console.log("\n⚠️  NO CREDENTIALS FOUND (CL_USER/CL_PASS) ⚠️");
-            console.log("Please log in to Card Ladder in the opened browser window.");
-            console.log("Once you are logged in and ready, press ENTER in this terminal to continue...");
-            await askQuestion("");
+            console.log('\n⚠️  NO CREDENTIALS FOUND (CL_USER/CL_PASS) ⚠️');
+            console.log('Please log in to Card Ladder in the opened browser window.');
+            console.log(
+                'Once you are logged in and ready, press ENTER in this terminal to continue...'
+            );
+            await askQuestion('');
         }
     } else {
-        console.log("✅ Session active! Skipping login.");
+        console.log('✅ Session active! Skipping login.');
     }
-    console.log("👍 Continuing with scraping...");
+    console.log('👍 Continuing with scraping...');
 
     // 4. Process Rows
     // 4.1 FIND COLUMNS DYNAMICALLY
     await sheet.loadHeaderRow(); // Ensure headers are loaded
-    console.log("Headers found:", sheet.headerValues);
+    console.log('Headers found:', sheet.headerValues);
     const headers = sheet.headerValues;
 
     // Configurable headers
@@ -186,10 +201,12 @@ async function main() {
         process.exit(1);
     }
 
-    console.log(`✅ Found Headers: "${CERT_HEADER}" (${certColIndex}) | "${VALUE_HEADER}" (${valueColIndex})`);
+    console.log(
+        `✅ Found Headers: "${CERT_HEADER}" (${certColIndex}) | "${VALUE_HEADER}" (${valueColIndex})`
+    );
 
     // Initialize PSA Service
-    const PsaService = require('./psa_service');
+    const PsaService = require('./lib/services/psa_service');
     const psaService = new PsaService(process.env.PSA_API_KEY, browser);
 
     // 4.2 Process Rows
@@ -199,37 +216,20 @@ async function main() {
     // Parse Row Limits (Human-friendly 1-based row numbers)
     // Default Start: Row 2 (First data row)
     // Default End: Last row
-    const startRowEnv = parseInt(process.env.START_ROW);
-    const endRowEnv = parseInt(process.env.END_ROW);
+    const { startIndex, endIndex, startRow, endRowDisplay } = determineProcessingRange(
+        process.env.START_ROW,
+        process.env.END_ROW,
+        rows.length
+    );
 
-    const startRow = !isNaN(startRowEnv) && startRowEnv >= 2 ? startRowEnv : 2;
-    // Calculate start index (Row 2 -> Index 0)
-    const startIndex = startRow - 2;
-
-    // Calculate end index
-    // If END_ROW is set, use it (converted to index). Otherwise use last index.
-    let endIndex = rows.length - 1;
-    if (!isNaN(endRowEnv) && endRowEnv >= startRow) {
-        endIndex = Math.min(endRowEnv - 2, rows.length - 1);
-    }
-
-    console.log(`🎯 Processing Range: Row ${startRow} to ${!isNaN(endRowEnv) ? 'Row ' + endRowEnv : 'End'} (Rows processed: ${endIndex - startIndex + 1})`);
+    console.log(
+        `🎯 Processing Range: Row ${startRow} to ${endRowDisplay} (Rows processed: ${endIndex - startIndex + 1})`
+    );
 
     const mismatches = [];
 
-    // Helper to convert 0-based column index to letter (A, B, C...)
-    const getColLetter = (n) => {
-        if (n < 0) return null;
-        let letter = '';
-        while (n >= 0) {
-            letter = String.fromCharCode(n % 26 + 65) + letter;
-            n = Math.floor(n / 26) - 1;
-        }
-        return letter;
-    };
-
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
-    let lastPsaDetails = null;   // Store { name, number, grade } to detect identical cards
+    let lastPsaDetails = null; // Store { name, number, grade } to detect identical cards
 
     // Options: 'RAW' (default) or 'HIGHER'
     const CL_VALUE_CHOICE = process.env.CL_VALUE_CHOICE || 'RAW';
@@ -244,20 +244,8 @@ async function main() {
         console.log(`\nProcessing Row ${rowNumber} | Cert: ${row.get(CERT_HEADER) || 'N/A'}`);
 
         // Load just the cells we need for this row to avoid range errors
-        // Convert to A1 notation? Or just use grid range. 
+        // Convert to A1 notation? Or just use grid range.
         // We need to load a range that covers both columns.
-
-        // Helper to convert 0-based column index to letter (A, B, C...)
-        const getColLetter = (n) => {
-            if (n < 0) return null;
-            let letter = '';
-            while (n >= 0) {
-                letter = String.fromCharCode(n % 26 + 65) + letter;
-                n = Math.floor(n / 26) - 1;
-            }
-            return letter;
-        };
-
         const certColLetter = getColLetter(certColIndex);
         const valueColLetter = getColLetter(valueColIndex);
         const confidenceColLetter = getColLetter(confidenceColIndex);
@@ -276,12 +264,23 @@ async function main() {
         }
 
         const certCell = certColLetter ? sheet.getCellByA1(`${certColLetter}${rowNumber}`) : null;
-        const valueCell = valueColLetter ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`) : null;
+        const valueCell = valueColLetter
+            ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`)
+            : null;
         const confidenceCell = confidenceColLetter ? sheet.getCellByA1(`${confidenceColLetter}${rowNumber}`) : null;
 
-        const nameCell = nameColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(nameColIndex)}${rowNumber}`) : null;
-        const numberCell = numberColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(numberColIndex)}${rowNumber}`) : null;
-        const gradeCell = gradeColIndex !== -1 ? sheet.getCellByA1(`${getColLetter(gradeColIndex)}${rowNumber}`) : null;
+        const nameCell =
+            nameColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(nameColIndex)}${rowNumber}`)
+                : null;
+        const numberCell =
+            numberColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(numberColIndex)}${rowNumber}`)
+                : null;
+        const gradeCell =
+            gradeColIndex !== -1
+                ? sheet.getCellByA1(`${getColLetter(gradeColIndex)}${rowNumber}`)
+                : null;
 
         const cert = certCell ? certCell.value : null;
         const currentVal = valueCell ? valueCell.value : null;
@@ -291,159 +290,106 @@ async function main() {
             continue;
         }
 
-        console.log(`\nProcessing Row ${rowNumber} | Cert: ${cert}`);
-        let rowModified = false;
-
-        // Current PSA Details (starts with cell values)
-        let currentPsaDetails = {
-            name: nameCell ? nameCell.value : null,
-            number: numberCell ? numberCell.value : null,
-            grade: gradeCell ? gradeCell.value : null
+        // Create Row Data Object
+        const rowData = {
+            cert,
+            currentVal: cleanCurrentVal(currentVal), // Ensure safe string/number
+            currentName: nameCell ? nameCell.value : null,
+            currentNumber: numberCell ? numberCell.value : null,
+            currentGrade: gradeCell ? gradeCell.value : null,
         };
 
-        // --- PSA INTEGRATION ---
-        const needsName = nameCell && (!nameCell.value || nameCell.value.toString().trim() === "");
-        const needsNumber = numberCell && (!numberCell.value || numberCell.value.toString().trim() === "");
-        const needsGrade = gradeCell && (!gradeCell.value || gradeCell.value.toString().trim() === "");
-
-        if (needsName || needsNumber || needsGrade) {
-            // ONLY fetch/write if mode is BOTH or PSA
-            if (['BOTH', 'PSA'].includes(WRITE_MODE)) {
-                console.log(`🔎 Missing metadata. Fetching from PSA...`);
-                const psaData = await psaService.getDetails(cert);
-
-                if (psaData) {
-                    if (needsName && nameCell) {
-                        nameCell.value = psaData.name;
-                        rowModified = true;
-                    }
-                    if (needsNumber && numberCell) {
-                        numberCell.value = psaData.number;
-                        rowModified = true;
-                    }
-                    if (needsGrade && gradeCell) {
-                        gradeCell.value = psaData.grade;
-                        rowModified = true;
-                    }
-
-                    // Update our current details object with fetched data
-                    if (psaData.name) currentPsaDetails.name = psaData.name;
-                    if (psaData.number) currentPsaDetails.number = psaData.number;
-                    if (psaData.grade) currentPsaDetails.grade = psaData.grade;
-                }
-            } else {
-                console.log(`⏭️  Skipping PSA fetch (Write Mode: ${WRITE_MODE})`);
-            }
-        }
-
-        // Check if SAME card as previous
-        let isSameCard = false;
-
-        // Helper for safe comparison
-        const isMatch = (str1, str2) => String(str1 || '').trim() === String(str2 || '').trim();
-
-        // Check 1: In-memory last details
-        if (lastPsaDetails) {
-            if (
-                isMatch(currentPsaDetails.name, lastPsaDetails.name) &&
-                isMatch(currentPsaDetails.number, lastPsaDetails.number) &&
-                isMatch(currentPsaDetails.grade, lastPsaDetails.grade)
-            ) {
-                isSameCard = true;
-            }
-        }
-
-        // Check 2: Fallback to previous row in Sheet (iff not already confirmed and we have a previous row)
-        if (!isSameCard && i > 0) {
+        // Add Previous Row Data if available
+        if (i > 0) {
             const prevRow = rows[i - 1];
-            // We must read the raw values from the previous row object
-            const prevName = prevRow.get(NAME_HEADER);
-            const prevNumber = prevRow.get(NUMBER_HEADER);
-            const prevGrade = prevRow.get(GRADE_HEADER);
-
-            if (
-                isMatch(currentPsaDetails.name, prevName) &&
-                isMatch(currentPsaDetails.number, prevNumber) &&
-                isMatch(currentPsaDetails.grade, prevGrade)
-            ) {
-                console.log(`ℹ️  Fallback Match: Current row matches previous row in Sheet.`);
-                isSameCard = true;
-            }
+            rowData.prevRowData = {
+                prevName: prevRow.get(NAME_HEADER),
+                prevNumber: prevRow.get(NUMBER_HEADER),
+                prevGrade: prevRow.get(GRADE_HEADER),
+            };
         }
 
-        // Scrape CL data (value and/or confidence)
-        if (['BOTH', 'CL', 'CONFIDENCE'].includes(WRITE_MODE)) {
-            const SKIP_CL_CHECK = (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true';
+        // Services
+        const services = {
+            psaService,
+            getCLValue,
+            page,
+        };
 
-            // Check if we should skip because value exists (only for CL/BOTH modes, not CONFIDENCE)
-            if (SKIP_CL_CHECK && currentVal && currentVal.toString().trim() !== "" && WRITE_MODE !== 'CONFIDENCE') {
-                console.log(`⏭️  Skipping CL Value Check (SKIP_CL_CHECK=true & value exists: ${currentVal})`);
+        // Options
+        const options = {
+            WRITE_MODE,
+            CL_VALUE_CHOICE,
+            SKIP_CL_CHECK: (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true',
+            lastScrapedValue,
+            lastPsaDetails,
+            rowNumber,
+        };
+
+        console.log(
+            `\nProcessing Row ${rowNumber} | Cert: ${cert} | Row data: ${JSON.stringify(rowData)}`
+        );
+
+        // EXECUTE LOGIC
+        const result = await processRow(rowData, services, options);
+
+        console.log(`✅ Row ${rowNumber} processed | Result: ${JSON.stringify(result)}`);
+
+        // Update State
+        lastScrapedValue = result.updatedLastScrapedValue;
+        lastPsaDetails = result.updatedLastPsaDetails;
+
+        // Verify Mismatch
+        if (result.mismatch) {
+            console.warn(
+                `⚠️ MISMATCH for ${cert}! Sheet: ${result.mismatch.sheetVal} | Scraped: ${result.mismatch.scrapedVal}`
+            );
+            mismatches.push(result.mismatch);
+            console.log(
+                `✅ Verified match: ${result.mismatch.sheetVal} (Wait.. logic says mismatch?)`
+            );
+            // Actually, if mismatch is present, it IS a mismatch.
+            // The old code printed "Verified match" if NO mismatch.
+            // My processRow only returns mismatch object if there IS one.
+        } else if (result.writeValue === null && rowData.currentVal) {
+            // Only print verified match if we didn't write anew and we had a value.
+            // But let's keep it simple.
+            console.log(`✅ Verified match or skipped.`);
+        }
+
+        // Apply Writes
+        if (result.writeName && nameCell) nameCell.value = result.writeName;
+        if (result.writeNumber && numberCell) numberCell.value = result.writeNumber;
+        if (result.writeGrade && gradeCell) gradeCell.value = result.writeGrade;
+        if (result.writeValue && valueCell) {
+            valueCell.value = result.writeValue;
+            console.log(`✏️ Writing value ${result.writeValue} to "${VALUE_HEADER}"`);
+        }
+
+        if (result.writePsaErrorColor) {
+            console.log(`🔴 Marking PSA columns red for Cert: ${cert}`);
+            const errorColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
+            if (nameCell) nameCell.backgroundColor = errorColor;
+            if (numberCell) numberCell.backgroundColor = errorColor;
+            if (gradeCell) gradeCell.backgroundColor = errorColor;
+        }
+
+        if (result.writeErrorColor && valueCell) {
+            console.log(`🔴 Marking "${VALUE_HEADER}" red for Cert: ${cert}`);
+            valueCell.backgroundColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
+        }
+
+        // Handle Confidence writing (for BOTH, CL, and CONFIDENCE modes)
+        if (result.writeConfidence !== undefined && confidenceCell) {
+            if (result.writeConfidence > 0) {
+                console.log(`✏️ Writing confidence ${result.writeConfidence} to "${CONFIDENCE_HEADER}"`);
+                confidenceCell.value = result.writeConfidence;
             } else {
-                const result = await getCLValue(page, cert, lastScrapedValue, isSameCard);
-
-                if (result === null) {
-                    console.warn(`Failed to scrape value for ${cert}`);
-                    continue;
-                }
-
-                const { raw, higher, confidence } = result;
-
-                // Update Caches
-                lastScrapedValue = raw;
-                lastPsaDetails = currentPsaDetails;
-
-                // Handle CL Value writing (for BOTH and CL modes only)
-                if (['BOTH', 'CL'].includes(WRITE_MODE)) {
-                    // Determine which value to write based on CL_VALUE_CHOICE
-                    let newValToWrite;
-                    if (CL_VALUE_CHOICE === 'HIGHER') {
-                        newValToWrite = higher;
-                        console.log(`👉 Using HIGHER value: ${newValToWrite}`);
-                    } else {
-                        // Default to RAW (Card Ladder Value) - Round UP
-                        newValToWrite = Math.ceil(raw);
-                        console.log(`👉 Using RAW value: ${newValToWrite}`);
-                    }
-
-                    if (!currentVal || currentVal.toString().trim() === "") {
-                        // Case: Empty Column -> Write
-                        console.log(`✏️ Writing value ${newValToWrite} to "${VALUE_HEADER}"`);
-                        if (valueCell) {
-                            valueCell.value = newValToWrite;
-                            rowModified = true;
-                        }
-                    } else {
-                        // Case: Filled -> Compare
-                        // Clean currentVal (remove $ or , or %)
-                        const cleanCurrent = parseFloat(currentVal.toString().replace(/[^0-9.]/g, ''));
-
-                        if (cleanCurrent !== newValToWrite) {
-                            console.warn(`⚠️ MISMATCH for ${cert}! Sheet: ${cleanCurrent} | Scraped: ${newValToWrite}`);
-                            mismatches.push({
-                                row: rowNumber,
-                                cert: cert,
-                                sheetVal: cleanCurrent,
-                                scrapedVal: newValToWrite
-                            });
-                        } else {
-                            console.log(`✅ Verified match: ${cleanCurrent}`);
-                        }
-                    }
-                }
-
-                // Handle Confidence writing (for BOTH, CL, and CONFIDENCE modes)
-                if (confidenceCell && confidence > 0) {
-                    console.log(`✏️ Writing confidence ${confidence} to "${CONFIDENCE_HEADER}"`);
-                    confidenceCell.value = confidence;
-                    rowModified = true;
-                } else if (confidence === 0) {
-                    console.warn(`⚠️ Could not determine confidence for ${cert}`);
-                }
+                console.warn(`⚠️ Could not determine confidence for ${cert}`);
             }
-        } else {
-            console.log(`⏭️  Skipping CL Value (Write Mode: ${WRITE_MODE})`);
         }
-        if (rowModified) {
+
+        if (result.rowModified) {
             try {
                 await sheet.saveUpdatedCells();
             } catch (saveError) {
@@ -462,16 +408,20 @@ async function main() {
     }
 
     // 5. Summary
-    console.log("\n\n🏁 Processing Complete!");
+    console.log('\n\n🏁 Processing Complete!');
     if (mismatches.length > 0) {
-        console.warn("\n⚠️ Found Mismatches:");
+        console.warn('\n⚠️ Found Mismatches:');
         console.table(mismatches);
     } else {
-        console.log("No mismatches found.");
+        console.log('No mismatches found.');
     }
 
     await browser.close();
     process.exit(0);
 }
 
-main();
+if (require.main === module) {
+    main();
+}
+
+module.exports = { main };
