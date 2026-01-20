@@ -29,7 +29,7 @@ const cleanCurrentVal = (val) => {
 async function main() {
     console.log('🚀 Starting Card Ladder Automation...');
 
-    const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL'
+    const WRITE_MODE = process.env.WRITE_MODE || 'BOTH'; // Options: 'BOTH', 'PSA', 'CL', 'CONFIDENCE'
     console.log(`📝 Write Mode: ${WRITE_MODE}`);
 
     // 1. Setup Google Sheets
@@ -172,24 +172,32 @@ async function main() {
     const headers = sheet.headerValues;
 
     // Configurable headers
-    const CERT_HEADER = 'Certification Number';
-    const VALUE_HEADER = 'CL Market Value';
-    const NAME_HEADER = 'Card Name';
-    const NUMBER_HEADER = 'Card Number';
-    const GRADE_HEADER = 'Grade';
+    const CERT_HEADER = "Certification Number";
+    const VALUE_HEADER = "1/19 Scripted Vals";
+    const NAME_HEADER = "Card Name";
+    const NUMBER_HEADER = "Card Number";
+    const GRADE_HEADER = "Grade";
+    const CONFIDENCE_HEADER = "CL Confidence Level";
 
     const certColIndex = headers.indexOf(CERT_HEADER);
     const valueColIndex = headers.indexOf(VALUE_HEADER);
     const nameColIndex = headers.indexOf(NAME_HEADER);
     const numberColIndex = headers.indexOf(NUMBER_HEADER);
     const gradeColIndex = headers.indexOf(GRADE_HEADER);
+    const confidenceColIndex = headers.indexOf(CONFIDENCE_HEADER);
 
     if (certColIndex === -1) {
         console.error(`❌ Could not find header "${CERT_HEADER}"`);
         process.exit(1);
     }
-    if (valueColIndex === -1) {
+    // Only require CL Market Value column if we're writing CL data (not in CONFIDENCE-only mode)
+    if (valueColIndex === -1 && ['BOTH', 'CL'].includes(WRITE_MODE)) {
         console.error(`❌ Could not find header "${VALUE_HEADER}"`);
+        process.exit(1);
+    }
+    // Only require Confidence column if we're writing confidence data
+    if (confidenceColIndex === -1 && ['BOTH', 'CL', 'CONFIDENCE'].includes(WRITE_MODE)) {
+        console.error(`❌ Could not find header "${CONFIDENCE_HEADER}"`);
         process.exit(1);
     }
 
@@ -240,11 +248,13 @@ async function main() {
         // We need to load a range that covers both columns.
         const certColLetter = getColLetter(certColIndex);
         const valueColLetter = getColLetter(valueColIndex);
+        const confidenceColLetter = getColLetter(confidenceColIndex);
 
         // Prepare ranges to load
         const cellsToLoad = [];
         if (certColLetter) cellsToLoad.push(`${certColLetter}${rowNumber}`);
         if (valueColLetter) cellsToLoad.push(`${valueColLetter}${rowNumber}`);
+        if (confidenceColLetter) cellsToLoad.push(`${confidenceColLetter}${rowNumber}`);
         if (nameColIndex !== -1) cellsToLoad.push(`${getColLetter(nameColIndex)}${rowNumber}`);
         if (numberColIndex !== -1) cellsToLoad.push(`${getColLetter(numberColIndex)}${rowNumber}`);
         if (gradeColIndex !== -1) cellsToLoad.push(`${getColLetter(gradeColIndex)}${rowNumber}`);
@@ -257,6 +267,7 @@ async function main() {
         const valueCell = valueColLetter
             ? sheet.getCellByA1(`${valueColLetter}${rowNumber}`)
             : null;
+        const confidenceCell = confidenceColLetter ? sheet.getCellByA1(`${confidenceColLetter}${rowNumber}`) : null;
 
         const nameCell =
             nameColIndex !== -1
@@ -368,8 +379,31 @@ async function main() {
             valueCell.backgroundColor = { red: 1, green: 0.8, blue: 0.8 }; // Light Red
         }
 
+        // Handle Confidence writing (for BOTH, CL, and CONFIDENCE modes)
+        if (result.writeConfidence !== undefined && confidenceCell) {
+            if (result.writeConfidence > 0) {
+                console.log(`✏️ Writing confidence ${result.writeConfidence} to "${CONFIDENCE_HEADER}"`);
+                confidenceCell.value = result.writeConfidence;
+            } else {
+                console.warn(`⚠️ Could not determine confidence for ${cert}`);
+            }
+        }
+
         if (result.rowModified) {
-            await sheet.saveUpdatedCells();
+            try {
+                await sheet.saveUpdatedCells();
+            } catch (saveError) {
+                console.error(`❌ Failed to save row ${rowNumber}:`, saveError.message);
+                // Retry once
+                try {
+                    console.log(`🔄 Retrying save for row ${rowNumber}...`);
+                    await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
+                    await sheet.saveUpdatedCells();
+                    console.log(`✅ Retry successful for row ${rowNumber}`);
+                } catch (retryError) {
+                    console.error(`❌ Retry failed for row ${rowNumber}:`, retryError.message);
+                }
+            }
         }
     }
 
