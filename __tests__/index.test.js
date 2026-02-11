@@ -63,6 +63,7 @@ describe('index.js main workflow', () => {
         process.env.GOOGLE_PRIVATE_KEY = 'private_key';
         process.env.SHEET_ID = 'sheet_id';
         process.env.WRITE_MODE = 'BOTH';
+        process.env.SHEET_TAB = 'RAW DATA SCRIPTED';
         delete process.env.START_ROW;
         delete process.env.END_ROW;
         delete process.env.CL_VALUE_CHOICE;
@@ -76,6 +77,7 @@ describe('index.js main workflow', () => {
                 'Card Name',
                 'Card Number',
                 'Grade',
+                'CL Confidence Level',
             ],
             loadHeaderRow: jest.fn().mockResolvedValue(),
             getRows: jest.fn().mockResolvedValue([]),
@@ -88,6 +90,9 @@ describe('index.js main workflow', () => {
             loadInfo: jest.fn().mockResolvedValue(),
             title: 'Mock Doc',
             sheetsByIndex: [mockSheet],
+            sheetsByTitle: {
+                'RAW DATA SCRIPTED': mockSheet,
+            },
         }));
 
         // Mock Puppeteer

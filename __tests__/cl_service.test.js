@@ -7,6 +7,7 @@ describe('cl_service', () => {
     beforeEach(() => {
         jest.setTimeout(30000);
         jest.clearAllMocks();
+        global.fetch = jest.fn();
 
         // Basic mock element with necessary methods
         mockElement = {
@@ -20,7 +21,13 @@ describe('cl_service', () => {
             waitForSelector: jest.fn().mockResolvedValue(true),
             $: jest.fn().mockResolvedValue(mockElement),
             evaluate: jest.fn(),
+            goBack: jest.fn(),
         };
+    });
+
+    afterEach(() => {
+        jest.resetAllMocks();
+        delete global.fetch;
     });
 
     test('should return null if certNumber is missing', async () => {
@@ -57,6 +64,11 @@ describe('cl_service', () => {
     });
 
     test('should successfully scrape values when found', async () => {
+        global.fetch.mockResolvedValueOnce({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+        });
         // 1. Search Icon
         mockPage.$.mockResolvedValueOnce(mockElement);
         // 2. Input
@@ -77,10 +89,63 @@ describe('cl_service', () => {
 
         const result = await getCLValue(mockPage, '123456');
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
             raw: 150.5,
             higher: 151,
+            confidence: 0,
         });
+    });
+
+    test('should return API value when CL API succeeds', async () => {
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({ estimatedValue: 1804, confidence: 3, grade: 'g10' }),
+        });
+
+        const result = await getCLValue(mockPage, '66561524', null, false, 'test-key');
+
+        expect(result).toEqual({
+            raw: 1804,
+            higher: 1804,
+            confidence: 3,
+            grade: 10,
+        });
+        expect(mockPage.$).not.toHaveBeenCalled();
+    });
+
+    test('should fall back to scraping when CL API fails', async () => {
+        global.fetch.mockResolvedValueOnce({
+            ok: false,
+            status: 429,
+            statusText: 'Too Many Requests',
+        });
+
+        // 1. Search Icon
+        mockPage.$.mockResolvedValueOnce(mockElement);
+        // 2. Input
+        mockPage.$.mockResolvedValueOnce(mockElement);
+        // 3. Submit
+        mockPage.$.mockResolvedValueOnce(mockElement);
+
+        // 4. Results container check (loop)
+        const mockContainer = {
+            evaluate: jest.fn().mockResolvedValue(3),
+        };
+        mockPage.$.mockResolvedValueOnce(mockContainer);
+
+        // 5. Card Ladder Value and Prices
+        mockPage.evaluate
+            .mockResolvedValueOnce(150.5)
+            .mockResolvedValueOnce([100, 150, 200]);
+
+        const result = await getCLValue(mockPage, '123456', null, false, 'test-key');
+
+        expect(result).toMatchObject({
+            raw: 150.5,
+            higher: 151,
+            confidence: 0,
+        });
+        expect(mockPage.$).toHaveBeenCalled();
     });
 
     test('should perform stale check and wait if values match', async () => {
