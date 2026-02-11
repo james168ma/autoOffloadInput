@@ -26,6 +26,21 @@ const cleanCurrentVal = (val) => {
     return val;
 };
 
+const extractSheetId = (value) => {
+    if (!value) return null;
+
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+
+    const urlMatch = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    if (urlMatch) return urlMatch[1];
+
+    const idParamMatch = trimmed.match(/[?&]id=([a-zA-Z0-9-_]+)/);
+    if (idParamMatch) return idParamMatch[1];
+
+    return trimmed;
+};
+
 async function main() {
     console.log('🚀 Starting Card Ladder Automation...');
 
@@ -49,7 +64,13 @@ async function main() {
         scopes: SCOPES,
     });
 
-    const doc = new GoogleSpreadsheet(process.env.SHEET_ID, jwt);
+    const sheetId = extractSheetId(process.env.SHEET_ID);
+    if (!sheetId) {
+        console.error('❌ Invalid SHEET_ID or URL. Please check .env file.');
+        process.exit(1);
+    }
+
+    const doc = new GoogleSpreadsheet(sheetId, jwt);
 
     try {
         await doc.loadInfo();
@@ -60,7 +81,12 @@ async function main() {
         process.exit(1);
     }
 
-    const sheet = doc.sheetsByIndex[0]; // Assuming first sheet
+    const sheetTab = process.env.SHEET_TAB || 'RAW DATA SCRIPTED';
+    const sheet = doc.sheetsByTitle[sheetTab];
+    if (!sheet) {
+        console.error(`❌ Could not find sheet named "${sheetTab}"`);
+        process.exit(1);
+    }
     console.log(`📄 Using sheet: "${sheet.title}"`);
 
     // 2. Launch Browser
@@ -167,13 +193,18 @@ async function main() {
 
     // 4. Process Rows
     // 4.1 FIND COLUMNS DYNAMICALLY
-    await sheet.loadHeaderRow(); // Ensure headers are loaded
+    const headerRow = Number.parseInt(process.env.HEADER_ROW || '1', 10);
+    if (Number.isNaN(headerRow) || headerRow < 1) {
+        console.error('❌ Invalid HEADER_ROW. Must be a positive number.');
+        process.exit(1);
+    }
+    await sheet.loadHeaderRow(headerRow);
     console.log('Headers found:', sheet.headerValues);
     const headers = sheet.headerValues;
 
     // Configurable headers
     const CERT_HEADER = "Certification Number";
-    const VALUE_HEADER = "1/19 Scripted Vals";
+    const VALUE_HEADER = "CL Market Value";
     const NAME_HEADER = "Card Name";
     const NUMBER_HEADER = "Card Number";
     const GRADE_HEADER = "Grade";
@@ -227,6 +258,48 @@ async function main() {
     );
 
     const mismatches = [];
+        const timedOutSaves = [];
+
+        const buildExpectedCells = (result, rowNumber) => {
+            const cells = [];
+
+            if (result.writeName && nameColIndex !== -1) {
+                cells.push({
+                    a1: `${getColLetter(nameColIndex)}${rowNumber}`,
+                    expected: result.writeName,
+                });
+            }
+            if (result.writeNumber && numberColIndex !== -1) {
+                cells.push({
+                    a1: `${getColLetter(numberColIndex)}${rowNumber}`,
+                    expected: result.writeNumber,
+                });
+            }
+            if (result.writeGrade && gradeColIndex !== -1) {
+                cells.push({
+                    a1: `${getColLetter(gradeColIndex)}${rowNumber}`,
+                    expected: result.writeGrade,
+                });
+            }
+            if (result.writeValue !== null && result.writeValue !== undefined && valueColIndex !== -1) {
+                cells.push({
+                    a1: `${getColLetter(valueColIndex)}${rowNumber}`,
+                    expected: result.writeValue,
+                });
+            }
+            if (
+                result.writeConfidence !== undefined &&
+                result.writeConfidence > 0 &&
+                confidenceColIndex !== -1
+            ) {
+                cells.push({
+                    a1: `${getColLetter(confidenceColIndex)}${rowNumber}`,
+                    expected: result.writeConfidence,
+                });
+            }
+
+            return cells;
+        };
 
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
     let lastPsaDetails = null; // Store { name, number, grade } to detect identical cards
@@ -234,6 +307,31 @@ async function main() {
     // Options: 'RAW' (default) or 'HIGHER'
     const CL_VALUE_CHOICE = process.env.CL_VALUE_CHOICE || 'RAW';
     console.log(`⚖️  Value Choice: ${CL_VALUE_CHOICE}`);
+
+    const saveChunkSize = Number.parseInt(process.env.SAVE_CHUNK_SIZE || '25', 10);
+    const saveChunkDelayMs = Number.parseInt(process.env.SAVE_CHUNK_DELAY_MS || '1000', 10);
+    const readDelayMs = Number.parseInt(process.env.READ_DELAY_MS || '200', 10);
+    const readBackoffMs = Number.parseInt(process.env.READ_BACKOFF_MS || '5000', 10);
+    if (Number.isNaN(saveChunkSize) || saveChunkSize < 1) {
+        console.error('❌ Invalid SAVE_CHUNK_SIZE. Must be a positive number.');
+        process.exit(1);
+    }
+    if (Number.isNaN(saveChunkDelayMs) || saveChunkDelayMs < 0) {
+        console.error('❌ Invalid SAVE_CHUNK_DELAY_MS. Must be 0 or greater.');
+        process.exit(1);
+    }
+    if (Number.isNaN(readDelayMs) || readDelayMs < 0) {
+        console.error('❌ Invalid READ_DELAY_MS. Must be 0 or greater.');
+        process.exit(1);
+    }
+    if (Number.isNaN(readBackoffMs) || readBackoffMs < 0) {
+        console.error('❌ Invalid READ_BACKOFF_MS. Must be 0 or greater.');
+        process.exit(1);
+    }
+    console.log(`📦 Save Chunk Size: ${saveChunkSize} | Delay: ${saveChunkDelayMs}ms`);
+    console.log(`📖 Read Delay: ${readDelayMs}ms | 429 Backoff: ${readBackoffMs}ms`);
+
+    let modifiedSinceSave = 0;
 
     for (let i = startIndex; i <= endIndex; i++) {
         const row = rows[i];
@@ -260,7 +358,35 @@ async function main() {
         if (gradeColIndex !== -1) cellsToLoad.push(`${getColLetter(gradeColIndex)}${rowNumber}`);
 
         if (cellsToLoad.length > 0) {
-            await sheet.loadCells(cellsToLoad);
+            let attempt = 0;
+            while (attempt < 5) {
+                try {
+                    if (readDelayMs > 0) {
+                        await new Promise((r) => setTimeout(r, readDelayMs));
+                    }
+                    await sheet.loadCells(cellsToLoad);
+                    break;
+                } catch (loadError) {
+                    const message = loadError?.message || String(loadError);
+                    const isTimeout = /timed out|timeout/i.test(message);
+                    const isQuota = /quota exceeded|429/i.test(message);
+                    attempt += 1;
+
+                    if ((isTimeout || isQuota) && attempt < 5) {
+                        console.warn(
+                            `⚠️ Load cells throttled for row ${rowNumber}. Retry ${attempt}/5...`,
+                            message
+                        );
+                        const backoff = isQuota ? readBackoffMs : 2000;
+                        if (backoff > 0) {
+                            await new Promise((r) => setTimeout(r, backoff));
+                        }
+                        continue;
+                    }
+
+                    throw loadError;
+                }
+            }
         }
 
         const certCell = certColLetter ? sheet.getCellByA1(`${certColLetter}${rowNumber}`) : null;
@@ -321,6 +447,13 @@ async function main() {
             WRITE_MODE,
             CL_VALUE_CHOICE,
             SKIP_CL_CHECK: (process.env.SKIP_CL_CHECK || 'false').toLowerCase() === 'true',
+            CL_API_KEY: process.env.CL_API_KEY || null,
+            FORCE_CL_OVERWRITE:
+                (process.env.FORCE_CL_OVERWRITE || 'false').toLowerCase() === 'true',
+            FORCE_CONFIDENCE_OVERWRITE:
+                (process.env.FORCE_CONFIDENCE_OVERWRITE || 'false').toLowerCase() === 'true',
+            FORCE_GRADE_OVERWRITE:
+                (process.env.FORCE_GRADE_OVERWRITE || 'false').toLowerCase() === 'true',
             lastScrapedValue,
             lastPsaDetails,
             rowNumber,
@@ -390,19 +523,92 @@ async function main() {
         }
 
         if (result.rowModified) {
-            try {
-                await sheet.saveUpdatedCells();
-            } catch (saveError) {
-                console.error(`❌ Failed to save row ${rowNumber}:`, saveError.message);
-                // Retry once
+            modifiedSinceSave += 1;
+
+            if (modifiedSinceSave >= saveChunkSize) {
                 try {
-                    console.log(`🔄 Retrying save for row ${rowNumber}...`);
-                    await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
                     await sheet.saveUpdatedCells();
-                    console.log(`✅ Retry successful for row ${rowNumber}`);
-                } catch (retryError) {
-                    console.error(`❌ Retry failed for row ${rowNumber}:`, retryError.message);
+                    if (saveChunkDelayMs > 0) {
+                        await new Promise((r) => setTimeout(r, saveChunkDelayMs));
+                    }
+                    modifiedSinceSave = 0;
+                } catch (saveError) {
+                    const message = saveError?.message || String(saveError);
+                    const isTimeout = /timed out|timeout/i.test(message);
+
+                    if (isTimeout) {
+                        console.warn(
+                            `⚠️ Save timed out around row ${rowNumber}. Will verify at end.`,
+                            message
+                        );
+                        const expectedCells = buildExpectedCells(result, rowNumber);
+                        if (expectedCells.length > 0) {
+                            timedOutSaves.push({ rowNumber, expectedCells });
+                        }
+                    } else {
+                        console.error(`❌ Failed to save around row ${rowNumber}:`, message);
+                        // Retry once
+                        try {
+                            console.log(`🔄 Retrying save around row ${rowNumber}...`);
+                            await new Promise((r) => setTimeout(r, 2000)); // Wait 2 seconds
+                            await sheet.saveUpdatedCells();
+                            console.log(`✅ Retry successful around row ${rowNumber}`);
+                        } catch (retryError) {
+                            console.error(
+                                `❌ Retry failed around row ${rowNumber}:`,
+                                retryError?.message || String(retryError)
+                            );
+                        }
+                    }
+
+                    // Reset counter after any save attempt to avoid per-row saves
+                    modifiedSinceSave = 0;
                 }
+            }
+        }
+    }
+
+    if (modifiedSinceSave > 0) {
+        try {
+            await sheet.saveUpdatedCells();
+        } catch (saveError) {
+            const message = saveError?.message || String(saveError);
+            console.warn(`⚠️ Final save timed out or failed:`, message);
+        }
+    }
+
+    if (timedOutSaves.length > 0) {
+        console.log(`\n🔍 Verifying ${timedOutSaves.length} timed-out saves...`);
+
+        for (const entry of timedOutSaves) {
+            const { rowNumber, expectedCells } = entry;
+            const ranges = expectedCells.map((cell) => cell.a1);
+
+            await sheet.loadCells(ranges);
+
+            const mismatched = [];
+            for (const cellInfo of expectedCells) {
+                const cell = sheet.getCellByA1(cellInfo.a1);
+                const expected = cellInfo.expected;
+                const actual = cell?.value ?? null;
+
+                const matches =
+                    typeof expected === 'number'
+                        ? Number(actual) === expected
+                        : String(actual ?? '').trim() === String(expected).trim();
+
+                if (!matches) {
+                    mismatched.push({ a1: cellInfo.a1, expected, actual });
+                }
+            }
+
+            if (mismatched.length === 0) {
+                console.log(`✅ Timeout save confirmed for row ${rowNumber}`);
+            } else {
+                console.warn(
+                    `⚠️ Timeout save not confirmed for row ${rowNumber}:`,
+                    JSON.stringify(mismatched)
+                );
             }
         }
     }

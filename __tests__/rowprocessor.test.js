@@ -83,6 +83,55 @@ describe('processRow Logic', () => {
         });
     });
 
+    test('should overwrite CL value when FORCE_CL_OVERWRITE is true', async () => {
+        const rowData = { cert: '123', currentVal: '100' };
+        const options = {
+            WRITE_MODE: 'BOTH',
+            CL_VALUE_CHOICE: 'HIGHER',
+            FORCE_CL_OVERWRITE: true,
+            rowNumber: 2,
+        };
+
+        mockGetCLValue.mockResolvedValue({ raw: 50, higher: 200 });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writeValue).toBe(200);
+        expect(result.rowModified).toBe(true);
+        expect(result.mismatch).toBeNull();
+    });
+
+    test('should overwrite confidence when FORCE_CONFIDENCE_OVERWRITE is true', async () => {
+        const rowData = { cert: '123', currentVal: '' };
+        const options = {
+            WRITE_MODE: 'CL',
+            FORCE_CONFIDENCE_OVERWRITE: true,
+            rowNumber: 2,
+        };
+
+        mockGetCLValue.mockResolvedValue({ raw: 50, higher: 55, confidence: 2 });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writeConfidence).toBe(2);
+    });
+
+    test('should overwrite grade when FORCE_GRADE_OVERWRITE is true', async () => {
+        const rowData = { cert: '123', currentVal: '', currentGrade: '9' };
+        const options = {
+            WRITE_MODE: 'CL',
+            FORCE_GRADE_OVERWRITE: true,
+            rowNumber: 2,
+        };
+
+        mockGetCLValue.mockResolvedValue({ raw: 50, higher: 55, grade: 10 });
+
+        const result = await processRow(rowData, services, options);
+
+        expect(result.writeGrade).toBe(10);
+        expect(result.rowModified).toBe(true);
+    });
+
     test('should detect same card from previous row data', async () => {
         const rowData = {
             cert: '123',
@@ -102,7 +151,7 @@ describe('processRow Logic', () => {
         await processRow(rowData, services, options);
 
         // Check if getCLValue came with 'isSameCard = true' -> 3rd arg
-        expect(mockGetCLValue).toHaveBeenCalledWith(mockPage, '123', undefined, true);
+        expect(mockGetCLValue).toHaveBeenCalledWith(mockPage, '123', undefined, true, undefined);
     });
 
     test('should signal error color if CL value fails to load and cell is empty', async () => {
@@ -113,6 +162,7 @@ describe('processRow Logic', () => {
 
         const result = await processRow(rowData, services, options);
 
+        expect(result.writeValue).toBe('No comps');
         expect(result.writeErrorColor).toBe(true);
         expect(result.rowModified).toBe(true);
     });

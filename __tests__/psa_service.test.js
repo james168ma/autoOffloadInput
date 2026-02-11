@@ -82,11 +82,13 @@ describe('PsaService', () => {
         });
 
         // Mock Scraper success
-        mockPage.evaluate.mockReturnValue({
-            name: 'Scraped Name',
-            number: 'Scraped #1',
-            grade: 9,
-        });
+        mockPage.evaluate
+            .mockReturnValueOnce({ hasError: false, hasDt: true })
+            .mockReturnValueOnce({
+                name: 'Scraped Name',
+                number: 'Scraped #1',
+                grade: 9,
+            });
 
         const result = await psaService.getDetails('fallback_cert');
 
@@ -106,11 +108,13 @@ describe('PsaService', () => {
     test('should skip API if no key provided', async () => {
         const serviceNoKey = new PsaService(null, mockBrowser);
 
-        mockPage.evaluate.mockReturnValue({
-            name: 'NoKey Name',
-            number: 'NoKey',
-            grade: 5,
-        });
+        mockPage.evaluate
+            .mockReturnValueOnce({ hasError: false, hasDt: true })
+            .mockReturnValueOnce({
+                name: 'NoKey Name',
+                number: 'NoKey',
+                grade: 5,
+            });
 
         await serviceNoKey.getDetails('nokey_cert');
 
@@ -125,11 +129,13 @@ describe('PsaService', () => {
         const mockCheckbox = { click: jest.fn() };
         mockPage.$.mockResolvedValueOnce(mockCheckbox);
 
-        mockPage.evaluate.mockReturnValue({
-            name: 'CF Card',
-            number: '1',
-            grade: 10,
-        });
+        mockPage.evaluate
+            .mockReturnValueOnce({ hasError: false, hasDt: true })
+            .mockReturnValueOnce({
+                name: 'CF Card',
+                number: '1',
+                grade: 10,
+            });
 
         await serviceNoKey.getDetails('cf_cert');
 

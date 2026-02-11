@@ -60,6 +60,7 @@ To allow the script to read/write to your sheet, you need a Service Account.
     GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account-email@...
     GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
     SHEET_ID=your_sheet_id_here
+    SHEET_TAB=RAW DATA SCRIPTED
 
     # PSA Integration (Optional but Recommended)
     PSA_API_KEY=your_psa_public_api_key
