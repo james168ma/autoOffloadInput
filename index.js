@@ -101,94 +101,19 @@ async function main() {
     const page = await browser.newPage();
 
     // 3. Login Check with Persistence
-    const targetUrl = 'https://app.cardladder.com/sales-history?direction=desc&sort=date';
-    console.log('➡️ Checking session...');
-    await page.goto(targetUrl, { waitUntil: 'networkidle2' });
+    const AuthService = require('./lib/services/auth_service');
+    const authService = new AuthService(process.env.CL_USER, process.env.CL_PASS);
 
-    // List of reliable selectors that indicate we are logged in (e.g. user menu, dashboard)
-    // or logged out (login form).
+    const loggedIn = await authService.login(page);
 
-    // Give SPA a moment to settle/redirect
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Check if we are logged out (URL includes 'login' OR 'Log In' button exists)
-    const currentUrl = page.url();
-    let loginBtnExists = false;
-    try {
-        loginBtnExists = await page.evaluate(() => {
-            const xpath = "//*[contains(text(), 'Login')]";
-            const result = document.evaluate(
-                xpath,
-                document,
-                null,
-                XPathResult.FIRST_ORDERED_NODE_TYPE,
-                null
-            );
-            return !!result.singleNodeValue;
-        });
-    } catch {
-        console.warn(
-            '⚠️ Could not check for login button (context changed?), proceeding with URL check...'
+    if (!loggedIn) {
+        console.log('Please log in to Card Ladder in the opened browser window.');
+        console.log(
+            'Once you are logged in and ready, press ENTER in this terminal to continue...'
         );
+        await askQuestion('');
     }
-
-    if (currentUrl.includes('login') || loginBtnExists) {
-        console.log('🔒 Not logged in (detected Login button/URL). Attempting automation...');
-
-        if (process.env.CL_USER && process.env.CL_PASS) {
-            try {
-                // Force navigation to login page to be safe
-                console.log('➡️ Going to Login Page...');
-                await page.goto('https://app.cardladder.com/login', { waitUntil: 'networkidle2' });
-
-                await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-
-                // Type and trigger events to ensure framework picks it up
-                await page.type('input[type="email"]', process.env.CL_USER);
-                await page.evaluate(() => {
-                    const el = document.querySelector('input[type="email"]');
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                });
-
-                await page.type('input[type="password"]', process.env.CL_PASS);
-                await page.evaluate(() => {
-                    const el = document.querySelector('input[type="password"]');
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                });
-
-                // Allow a brief moment for validation
-                await new Promise((r) => setTimeout(r, 1000));
-
-                console.log('⌨️ Pressing Enter to submit...');
-                await page.keyboard.press('Enter');
-
-                try {
-                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-                } catch (navErr) {
-                    console.warn('⚠️ Navigation wait ended (possibly success):', navErr.message);
-                }
-                console.log('✅ Login flow completed');
-
-                // Navigate back to Sales History
-                console.log('➡️ Navigating to Sales History...');
-                await page.goto(targetUrl, { waitUntil: 'networkidle2' });
-            } catch (err) {
-                console.error('❌ Login failed:', err);
-                process.exit(1);
-            }
-        } else {
-            console.log('\n⚠️  NO CREDENTIALS FOUND (CL_USER/CL_PASS) ⚠️');
-            console.log('Please log in to Card Ladder in the opened browser window.');
-            console.log(
-                'Once you are logged in and ready, press ENTER in this terminal to continue...'
-            );
-            await askQuestion('');
-        }
-    } else {
-        console.log('✅ Session active! Skipping login.');
-    }
+    console.log('👍 Continuing with scraping...');
     console.log('👍 Continuing with scraping...');
 
     // 4. Process Rows
@@ -258,48 +183,48 @@ async function main() {
     );
 
     const mismatches = [];
-        const timedOutSaves = [];
+    const timedOutSaves = [];
 
-        const buildExpectedCells = (result, rowNumber) => {
-            const cells = [];
+    const buildExpectedCells = (result, rowNumber) => {
+        const cells = [];
 
-            if (result.writeName && nameColIndex !== -1) {
-                cells.push({
-                    a1: `${getColLetter(nameColIndex)}${rowNumber}`,
-                    expected: result.writeName,
-                });
-            }
-            if (result.writeNumber && numberColIndex !== -1) {
-                cells.push({
-                    a1: `${getColLetter(numberColIndex)}${rowNumber}`,
-                    expected: result.writeNumber,
-                });
-            }
-            if (result.writeGrade && gradeColIndex !== -1) {
-                cells.push({
-                    a1: `${getColLetter(gradeColIndex)}${rowNumber}`,
-                    expected: result.writeGrade,
-                });
-            }
-            if (result.writeValue !== null && result.writeValue !== undefined && valueColIndex !== -1) {
-                cells.push({
-                    a1: `${getColLetter(valueColIndex)}${rowNumber}`,
-                    expected: result.writeValue,
-                });
-            }
-            if (
-                result.writeConfidence !== undefined &&
-                result.writeConfidence > 0 &&
-                confidenceColIndex !== -1
-            ) {
-                cells.push({
-                    a1: `${getColLetter(confidenceColIndex)}${rowNumber}`,
-                    expected: result.writeConfidence,
-                });
-            }
+        if (result.writeName && nameColIndex !== -1) {
+            cells.push({
+                a1: `${getColLetter(nameColIndex)}${rowNumber}`,
+                expected: result.writeName,
+            });
+        }
+        if (result.writeNumber && numberColIndex !== -1) {
+            cells.push({
+                a1: `${getColLetter(numberColIndex)}${rowNumber}`,
+                expected: result.writeNumber,
+            });
+        }
+        if (result.writeGrade && gradeColIndex !== -1) {
+            cells.push({
+                a1: `${getColLetter(gradeColIndex)}${rowNumber}`,
+                expected: result.writeGrade,
+            });
+        }
+        if (result.writeValue !== null && result.writeValue !== undefined && valueColIndex !== -1) {
+            cells.push({
+                a1: `${getColLetter(valueColIndex)}${rowNumber}`,
+                expected: result.writeValue,
+            });
+        }
+        if (
+            result.writeConfidence !== undefined &&
+            result.writeConfidence > 0 &&
+            confidenceColIndex !== -1
+        ) {
+            cells.push({
+                a1: `${getColLetter(confidenceColIndex)}${rowNumber}`,
+                expected: result.writeConfidence,
+            });
+        }
 
-            return cells;
-        };
+        return cells;
+    };
 
     let lastScrapedValue = null; // Store RAW unrounded value for stale checks
     let lastPsaDetails = null; // Store { name, number, grade } to detect identical cards
